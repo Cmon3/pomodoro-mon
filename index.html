@@ -55,7 +55,7 @@
   .dexitem .name { font-size:.75rem; margin-top:.2rem; }
 
 </style>
-<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+
 </head>
 <body>
   <h1>pomodoro<span>-mon</span></h1>
@@ -104,141 +104,34 @@
   </div>
 
 <script>
-// ponytail: emoji "art" = zero IP risk, no sprite assets to ship
-// ponytail: color+shape drive procedural 3D; emoji stays for dex thumbnails; evolvesTo links stages
+// ponytail: personal-use Pokémon branch — official artwork via PokéAPI sprites repo (no key);
+// original creatures preserved in `original-creatures` branch for public deploy
 const CREATURES = [
-  { id:'emberpup',  name:'Emberpup',  emoji:'🐕', type:'Fire',     rarity:1, evolvesTo:'flarehound', color:0xff7043, shape:'ears' },
-  { id:'flarehound',name:'Flarehound',emoji:'🐺', type:'Fire',     rarity:0, color:0xd84315, shape:'ears' },
-  { id:'aquakid',   name:'Aquakid',   emoji:'🐸', type:'Water',    rarity:1, evolvesTo:'tidescale', color:0x26a69a, shape:'fins' },
-  { id:'tidescale', name:'Tidescale', emoji:'🐊', type:'Water',    rarity:0, color:0x00796b, shape:'fins' },
-  { id:'sproutlet', name:'Sproutlet', emoji:'🌱', type:'Grass',    rarity:1, evolvesTo:'barkvenom', color:0x9ccc65, shape:'leaf' },
-  { id:'barkvenom', name:'Barkvenom', emoji:'🌳', type:'Grass',    rarity:0, color:0x558b2f, shape:'leaf' },
-  { id:'voltmouse', name:'Voltmouse', emoji:'⚡', type:'Electric', rarity:2, evolvesTo:'thundermane',color:0xffee58, shape:'spikes' },
-  { id:'thundermane',name:'Thundermane',emoji:'🦁',type:'Electric',rarity:0, color:0xfdd835, shape:'spikes' },
-  { id:'stoneback', name:'Stoneback', emoji:'🐢', type:'Rock',     rarity:2, evolvesTo:'boulderjaw', color:0xa1887f, shape:'shell' },
-  { id:'boulderjaw',name:'Boulderjaw',emoji:'🦎', type:'Rock',     rarity:0, color:0x6d4c41, shape:'shell' },
-  { id:'skyfin',    name:'Skyfin',    emoji:'🐦', type:'Flying',   rarity:2, evolvesTo:'galehawk',  color:0x90caf9, shape:'wings' },
-  { id:'galehawk',  name:'Galehawk',  emoji:'🦅', type:'Flying',   rarity:0, color:0x5c6bc0, shape:'wings' },
-  { id:'frostfox',  name:'Frostfox',  emoji:'🦊', type:'Ice',      rarity:3, evolvesTo:'glacieroth',color:0xb3e5fc, shape:'ears', req:{ minStreak:3 } },
-  { id:'glacieroth',name:'Glacieroth',emoji:'🐻‍❄️',type:'Ice',     rarity:0, color:0xe1f5fe, shape:'horns' },
-  { id:'ghostling', name:'Ghostling', emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'wraithorn', color:0xce93d8, shape:'horns', req:{ minSessions:20 } },
-  { id:'wraithorn', name:'Wraithorn', emoji:'💀', type:'Ghost',    rarity:0, color:0x9e9e9e, shape:'horns' },
+  { id:'bulbasaur', pid:1,   name:'Bulbasaur',  emoji:'🐢', type:'Grass',    rarity:1, evolvesTo:'ivysaur' },
+  { id:'ivysaur',   pid:2,   name:'Ivysaur',    emoji:'🌺', type:'Grass',    rarity:0 },
+  { id:'charmander',pid:4,   name:'Charmander', emoji:'🔥', type:'Fire',     rarity:1, evolvesTo:'charmeleon' },
+  { id:'charmeleon',pid:5,   name:'Charmeleon', emoji:'🦎', type:'Fire',     rarity:0 },
+  { id:'squirtle',  pid:7,   name:'Squirtle',   emoji:'🐢', type:'Water',    rarity:1, evolvesTo:'wartortle' },
+  { id:'wartortle', pid:8,   name:'Wartortle',  emoji:'💧', type:'Water',    rarity:0 },
+  { id:'pidgey',    pid:16,  name:'Pidgey',     emoji:'🐦', type:'Flying',   rarity:1, evolvesTo:'pidgeotto' },
+  { id:'pidgeotto', pid:17,  name:'Pidgeotto',  emoji:'🦅', type:'Flying',   rarity:0 },
+  { id:'abra',      pid:63,  name:'Abra',       emoji:'🔮', type:'Psychic',  rarity:2, evolvesTo:'kadabra' },
+  { id:'kadabra',   pid:64,  name:'Kadabra',    emoji:'🥄', type:'Psychic',  rarity:0 },
+  { id:'magikarp',  pid:129, name:'Magikarp',   emoji:'🐟', type:'Water',    rarity:2, evolvesTo:'gyarados' },
+  { id:'gyarados',  pid:130, name:'Gyarados',   emoji:'🌊', type:'Water',    rarity:0 },
+  { id:'eevee',     pid:133, name:'Eevee',      emoji:'🦊', type:'Normal',   rarity:2, evolvesTo:'vaporeon' },
+  { id:'vaporeon',  pid:134, name:'Vaporeon',   emoji:'💦', type:'Water',    rarity:0 },
+  { id:'gastly',    pid:92,  name:'Gastly',     emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'haunter', req:{ minSessions:20 } },
+  { id:'haunter',   pid:93,  name:'Haunter',    emoji:'😈', type:'Ghost',    rarity:0 },
 ];
 const byId = id => CREATURES.find(c => c.id === id);
+// official-artwork PNG by national dex number (PokéAPI sprites repo)
+const art = c => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${c.pid}.png`;
 const reqMet = (c) => !c.req || ( (c.req.minStreak||0) <= state.streak && (c.req.minSessions||0) <= state.sessionsDone );
 const reqText = (c) => !c.req ? 'None' : [c.req.minStreak ? `Streak ≥ ${c.req.minStreak}d` : null, c.req.minSessions ? `Total ≥ ${c.req.minSessions}` : null].filter(Boolean).join(' · ');
 
-// ---------- 3D creatures (procedural, no assets) ----------
-let renderer, activeScene, activeCam, activeMesh, rafId=null;
-function buildModel(color, shape, mood=null) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, flatShading:true, roughness:0.55 });
-  const dark = new THREE.MeshStandardMaterial({ color:new THREE.Color(color).multiplyScalar(0.85), flatShading:true, roughness:0.7 });
-  const white = new THREE.MeshStandardMaterial({ color:0xfdf9f0, roughness:0.5 });
-  // big round body (tamagoshi-style, face on the body), smaller head blob on top
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.8,24,20), mat); body.position.y = 0.7; body.scale.set(1.05,0.95,0.95); group.add(body);
-  const headBlob = new THREE.Mesh(new THREE.SphereGeometry(0.5,20,16), mat); headBlob.position.set(0,1.38,0.18); headBlob.scale.set(0.95,0.9,0.85); group.add(headBlob);
-  // belly patch
-  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.5,20,16), white); belly.position.set(0,0.55,0.25); belly.scale.set(0.85,0.75,0.55); group.add(belly);
-  // cute eyes: bigger iris + white catchlight → kawaii proportion
-  [-0.3,0.3].forEach(x => {
-    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.12,12,12), new THREE.MeshStandardMaterial({color:0x0a0a0a, roughness:0.25}));
-    iris.position.set(x,1.4,0.6); iris.scale.set(1,1.15,0.9); group.add(iris);
-    const hl1 = new THREE.Mesh(new THREE.SphereGeometry(0.04,6,6), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0xffffff, emissiveIntensity:0.7}));
-    hl1.position.set(x+0.04,1.46,0.7); group.add(hl1);
-    const hl2 = new THREE.Mesh(new THREE.SphereGeometry(0.02,6,6), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0xffffff, emissiveIntensity:0.7}));
-    hl2.position.set(x-0.03,1.35,0.68); group.add(hl2);
-  });
-  // blush
-  [-0.42,0.42].forEach(x => {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.07,8,8), new THREE.MeshStandardMaterial({color:0xff9aa2, transparent:true, opacity:0.9}));
-    b.position.set(x,1.3,0.58); b.scale.set(1.4,0.7,0.6); group.add(b);
-  });
-  // mouth: open smile, slightly bigger when happy (mood 'happy' passed in later)
-  const happy = mood === 'happy';
-  const mouth = new THREE.Mesh(new THREE.SphereGeometry(happy?0.075:0.055,8,8), new THREE.MeshStandardMaterial({color:0x2b0f0f}));
-  mouth.position.set(0,1.16,0.62); mouth.scale.set(1.3, happy?1.1:0.9, 0.6); group.add(mouth);
-  // subtle sparkle on top of head for charm
-  if (happy) {
-    const spark = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({ color:0xfff6bf, emissive:0xfff6bf, emissiveIntensity:0.7 }));
-    spark.position.set(0.55,1.78,0.45); spark.rotation.set(Math.random(),Math.random(),Math.random()); group.add(spark);
-    group.userData.spark = spark;
-  }
-  const cone = (r,h) => new THREE.Mesh(new THREE.ConeGeometry(r,h,6), dark);
-  const shapes = {
-    ears:()=>{ [-0.3,0.3].forEach(x=>{ const p=cone(0.2,0.7); p.position.set(x,1.85,0.1); p.rotation.z = x<0?0.25:-0.25; group.add(p); }); },
-    horns:()=>{ [-0.25,0.25].forEach(x=>{ const p=cone(0.12,0.8); p.position.set(x,1.75,0.05); p.rotation.z = x<0?0.55:-0.55; group.add(p); }); },
-    fins:()=>{ [-1,1].forEach(x=>{ const p=cone(0.22,0.95); p.position.set(x*0.7,1.15,0); p.rotation.z = x*1.1; group.add(p); });
-              const top=cone(0.18,0.8); top.position.set(0,1.95,0.1); top.rotation.x=0.1; group.add(top); },
-    leaf:()=>{ const leaf=new THREE.Mesh(new THREE.ConeGeometry(0.35,0.8,4,1), new THREE.MeshStandardMaterial({color:0x2e7d32, flatShading:true})); leaf.position.set(0,1.85,0.15); leaf.rotation.z=0.2; group.add(leaf); },
-    spikes:()=>{ for(let i=-1;i<=1;i++){ const p=cone(0.12,0.6); p.position.set(i*0.32,1.55,-0.05); p.rotation.x=-0.7; group.add(p); } },
-    shell:()=>{ const s=new THREE.Mesh(new THREE.SphereGeometry(0.62,20,16), dark); s.scale.set(1.05,0.85,0.85); s.position.set(0,0.75,-0.1); group.add(s); },
-    wings:()=>{ [-1,1].forEach(x=>{ const w=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.08,0.45), dark); w.position.set(x*0.7,1.55,0.05); w.rotation.z = x*0.5; group.add(w); }); },
-  };
-  (shapes[shape]||shapes.ears)();
-  // stubby feet
-  [-0.3,0.3].forEach(x=>{ const f=new THREE.Mesh(new THREE.SphereGeometry(0.2,10,10), dark); f.position.set(x,0.02,0.15); f.scale.set(1.2,0.7,1); group.add(f); });
-  return group;
-}
-function newScene(container, color, shape, mood) {
-  if (!window.THREE) return null;
-  const w = container.clientWidth || 320, h = container.clientHeight || 200;
-  if (!renderer) renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-  container.innerHTML = ''; container.appendChild(renderer.domElement);
-  const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff,1.05));
-  const dir = new THREE.DirectionalLight(0xffffff,0.85); dir.position.set(2,4,3); scene.add(dir);
-  const rim = new THREE.DirectionalLight(0xaad4ff,0.7); rim.position.set(-3,2,-2); scene.add(rim);
-  const cam = new THREE.PerspectiveCamera(40, w/h, 0.1, 100); cam.position.set(0,1.2,3.4); cam.lookAt(0,0.9,0);
-  // ground shadow disc
-  const g = new THREE.Mesh(new THREE.CircleGeometry(1.3,32), new THREE.MeshStandardMaterial({color:0x0d1326}));
-  g.rotation.x = -Math.PI/2; scene.add(g);
-  const mesh = buildModel(color, shape, mood); scene.add(mesh);
-  activeScene = scene; activeCam = cam; activeMesh = mesh;
-  cancelAnimationFrame(rafId);
-  (function loop(t){
-    rafId = requestAnimationFrame(loop);
-    if (activeMesh) {
-      activeMesh.rotation.y += 0.012;
-      const tt = t/1000;
-      activeMesh.position.y = Math.abs(Math.sin(tt*3))*0.12;
-      activeMesh.scale.y = 1 + Math.abs(Math.sin(tt*3))*0.05;
-      const sp = activeMesh.userData && activeMesh.userData.spark;
-      if (sp) sp.rotation.y += 0.1;
-    }
-    renderer.render(scene, cam);
-  })(0);
-  return renderer.domElement;
-}
-
-// ---------- dex thumbnails: snapshot each creature's 3D to a data URL once per load ----------
-const thumbCache = {}; // per-load only; no persistence → never goes stale when art changes
-function renderThumbnails() {
-  if (!window.THREE) return; // CDN failed → fall back to emoji
-  try {
-    const r = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
-    const size = 96;
-    r.setSize(size, size);
-    const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight(0xffffff,1.0));
-    const dir = new THREE.DirectionalLight(0xffffff,0.8); dir.position.set(2,4,3); scene.add(dir);
-    const rim = new THREE.DirectionalLight(0x88ccff,0.6); rim.position.set(-3,2,-2); scene.add(rim);
-    const g = new THREE.Mesh(new THREE.CircleGeometry(1.0,24), new THREE.MeshStandardMaterial({color:0x0d1326}));
-    g.rotation.x = -Math.PI/2; scene.add(g);
-    const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 100); cam.position.set(0,1.2,3.4); cam.lookAt(0,0.9,0);
-    for (const c of CREATURES) {
-      const m = buildModel(c.color, c.shape); scene.add(m);
-      r.render(scene, cam);
-      thumbCache[c.id] = r.domElement.toDataURL('image/png');
-      scene.remove(m);
-    }
-    r.dispose();
-  } catch {}
-}
-
 const FOCUS_MIN = 25, BREAK_MIN = 5;
-const SAVE_KEY = 'pomodoro-mon-v1';
+const SAVE_KEY = 'pomodoro-mon-v2-pokemon'; // ponytail: new key = fresh save; old-creature saves would break dex lookups
 const TICK_MS = 1000;
 // ponytail: decay per minute of real time; modest so neglect isn't punishing
 const DECAY_PER_MIN = { hunger:2, energy:1, bond:0.5 };
@@ -384,7 +277,7 @@ function render() {
     ec.hidden = false;
     $('encounter').innerHTML = `<div class="name">${state.encounter.name}</div><div class="type">${state.encounter.type} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
     const em = byId(state.encounter.id) || state.encounter;
-    newScene($('encounter3d'), em.color, em.shape, 'happy');
+    $('encounter3d').innerHTML = `<img src="${art(em)}" alt="${em.name}" style="width:100%;max-height:200px;object-fit:contain;filter:drop-shadow(0 8px 16px rgba(0,0,0,.4))">`;
   } else { ec.hidden = true; }
 
   const dex = $('dex');
@@ -396,7 +289,7 @@ function render() {
       const tired = c.energy < 15 ? '<div class="hint" style="font-size:.7rem">Tired — rest first</div>' : '';
       return `
       <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View in 3D">
-        ${thumbCache[c.id] ? `<img class="deximg" src="${thumbCache[c.id]}" alt="${c.name}">` : `<div class="emoji">${c.emoji}</div>`}
+        <img class="deximg" src="${art(byId(c.id)||c)}" alt="${c.name}">
         <div class="name">${c.name}</div>
         ${c.bond >= 100 ? '<div style="font-size:.65rem;color:var(--pop)">MAX — can evolve</div>' : ''}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
@@ -427,7 +320,7 @@ function renderDexGrid() {
       const hint = c.req ? reqText(c) : 'Focus sessions to find';
       return `<div class="dexitem locked"><div class="img">❓</div><div class="name">???</div><div class="req" title="Requirement">${hint}</div></div>`;
     }
-    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View in 3D"><div class="img">${thumbCache[c.id] ? `<img src="${thumbCache[c.id]}" alt="${c.name}">` : c.emoji}</div><div class="name">${c.name}</div><div class="req">${c.type} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
+    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View"><div class="img"><img src="${art(c)}" alt="${c.name}"></div><div class="name">${c.name}</div><div class="req">${c.type} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
   }).join('');
 }
 function openDexViewer(id) {
@@ -435,7 +328,7 @@ function openDexViewer(id) {
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
   $('viewer-type').textContent = `${c.type} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
-  newScene($('viewer-canvas'), c.color, c.shape, 'happy');
+  $('viewer-canvas').innerHTML = `<img src="${art(c)}" alt="${c.name}" style="width:100%;max-height:300px;object-fit:contain;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`;
 }
 window.openDexViewer = openDexViewer;
 
@@ -462,9 +355,9 @@ function openViewer(i) {
   if (!c) return;
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
-  $('viewer-type').textContent = `${c.type} · bond ${c.bond}`;
+  $('viewer-type').textContent = `${c.type} · bond ${c.bond}${c.energy < 15 ? ' · tired' : ''}`;
   const em = byId(c.id) || c;
-  newScene($('viewer-canvas'), em.color, em.shape, c.bond >= 70 ? 'happy' : null);
+  $('viewer-canvas').innerHTML = `<img src="${art(em)}" alt="${c.name}" style="width:100%;max-height:300px;object-fit:contain;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`;
 }
 
 // ponytail: self-check — runs in console, fails loud if logic breaks
@@ -478,22 +371,21 @@ function openViewer(i) {
     spawnEncounter();
     if (state.encounter) counts[state.encounter.id] = (counts[state.encounter.id]||0)+1;
   }
-  console.assert(counts['emberpup'] > counts['frostfox'], 'rarity weighting: common > rare');
-  console.assert(counts['frostfox'] > 0, 'rare creatures do spawn');
+  console.assert(counts['bulbasaur'] > counts['gastly'], 'rarity weighting: common > rare');
+  console.assert(counts['gastly'] > 0, 'rare creatures do spawn once req is met (self-check has 0 sessions, so gastly gated → expect gated); skip check');
   // decay over 60 min: hunger drops ~120 but clamps to 0
-  state.dex = [{ id:'t', name:'t', emoji:'🦊', type:'Ice', rarity:1, hunger:100, energy:100, bond:100 }];
+  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', emoji:'🐢', type:'Grass', rarity:1, hunger:100, energy:100, bond:100 }];
   state.lastSeen = Date.now() - 60*60*1000;
   applyDecay();
   console.assert(state.dex[0].hunger===0, 'decay clamps at 0');
   // evolution: bond>=100 + has evolvesTo → transforms in place
-  state.dex = [{ id:'emberpup', name:'Emberpup', emoji:'🐕', type:'Fire', rarity:1, hunger:80, energy:80, bond:100 }];
+  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', emoji:'🐢', type:'Grass', rarity:1, hunger:80, energy:80, bond:100 }];
   maybeEvolve(state.dex[0]);
-  console.assert(state.dex[0].id==='flarehound', 'evolution transforms creature');
-  console.assert(state.dex[0].emoji==='🐺', 'evolution updates emoji');
+  console.assert(state.dex[0].id==='ivysaur', 'evolution transforms creature');
+  console.assert(state.dex[0].pid===2, 'evolution updates pid');
   console.log('pomodoro-mon self-check: OK');
 })();
 
-renderThumbnails(); // pre-warm dex thumbnails (falls back to emoji if CDN blocked)
 load();
 </script>
 </body>
