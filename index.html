@@ -43,6 +43,17 @@
   #viewer-box .type { color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
   #viewer-box button { width:100%; }
   .deximg { width:64px; height:64px; border-radius:8px; background:radial-gradient(circle,#223055,#0d1326); }
+  .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; }
+  .tab { padding:.4rem .9rem; font-size:.9rem; border-radius:8px; background:transparent; color:var(--muted); border:1px solid var(--accent); }
+  .tab.active { background:var(--accent); color:var(--txt); }
+  .dexgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(88px,1fr)); gap:.5rem; }
+  .dexitem { background:var(--accent); border-radius:8px; padding:.5rem .35rem; text-align:center; font-size:.7rem; color:var(--txt); }
+  .dexitem .img { font-size:1.8rem; line-height:1; margin-bottom:.3rem; min-height:2.2rem; }
+  .dexitem .img img { width:2.2rem; height:2.2rem; object-fit:contain; }
+  .dexitem.locked { opacity:.55; }
+  .dexitem .req { font-size:.6rem; color:var(--muted); margin-top:.2rem; line-height:1.3; }
+  .dexitem .name { font-size:.75rem; margin-top:.2rem; }
+
 </style>
 <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 </head>
@@ -81,8 +92,15 @@
   </div>
 
   <div class="card">
-    <h2 style="font-size:1rem;margin-bottom:.75rem;">My Creatures</h2>
-    <div id="dex"></div>
+    <div class="tabs">
+      <button id="tab-own" class="tab active">My Creatures</button>
+      <button id="tab-dex" class="tab">Dex</button>
+    </div>
+    <div id="view-own"><div id="dex"></div></div>
+    <div id="view-dex" hidden>
+      <div class="hint" style="margin-bottom:.6rem">Catch them all. Hidden creatures have requirements below.</div>
+      <div class="dexgrid" id="dexgrid"></div>
+    </div>
   </div>
 
 <script>
@@ -101,12 +119,14 @@ const CREATURES = [
   { id:'boulderjaw',name:'Boulderjaw',emoji:'🦎', type:'Rock',     rarity:0, color:0x6d4c41, shape:'shell' },
   { id:'skyfin',    name:'Skyfin',    emoji:'🐦', type:'Flying',   rarity:2, evolvesTo:'galehawk',  color:0x90caf9, shape:'wings' },
   { id:'galehawk',  name:'Galehawk',  emoji:'🦅', type:'Flying',   rarity:0, color:0x5c6bc0, shape:'wings' },
-  { id:'frostfox',  name:'Frostfox',  emoji:'🦊', type:'Ice',      rarity:3, evolvesTo:'glacieroth',color:0xb3e5fc, shape:'ears' },
+  { id:'frostfox',  name:'Frostfox',  emoji:'🦊', type:'Ice',      rarity:3, evolvesTo:'glacieroth',color:0xb3e5fc, shape:'ears', req:{ minStreak:3 } },
   { id:'glacieroth',name:'Glacieroth',emoji:'🐻‍❄️',type:'Ice',     rarity:0, color:0xe1f5fe, shape:'horns' },
-  { id:'ghostling', name:'Ghostling', emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'wraithorn', color:0xce93d8, shape:'horns' },
+  { id:'ghostling', name:'Ghostling', emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'wraithorn', color:0xce93d8, shape:'horns', req:{ minSessions:20 } },
   { id:'wraithorn', name:'Wraithorn', emoji:'💀', type:'Ghost',    rarity:0, color:0x9e9e9e, shape:'horns' },
 ];
 const byId = id => CREATURES.find(c => c.id === id);
+const reqMet = (c) => !c.req || ( (c.req.minStreak||0) <= state.streak && (c.req.minSessions||0) <= state.sessionsDone );
+const reqText = (c) => !c.req ? 'None' : [c.req.minStreak ? `Streak ≥ ${c.req.minStreak}d` : null, c.req.minSessions ? `Total ≥ ${c.req.minSessions}` : null].filter(Boolean).join(' · ');
 
 // ---------- 3D creatures (procedural, no assets) ----------
 let renderer, activeScene, activeCam, activeMesh, rafId=null;
@@ -304,9 +324,11 @@ function notify(title, body) {
   }
 }
 function spawnEncounter() {
-  // ponytail: weighted by rarity (lower=common); base-form only, evolutions are earned
-  const pool = CREATURES.filter(c => c.rarity > 0);
-  const weighted = pool.flatMap(c => Array(c.rarity).fill(c));
+  // ponytail: weighted by rarity (lower=common); streak ≥3 today boosts rare odds; req-gated creatures filtered
+  const boost = state.todayCount >= 3 ? 2 : 1;
+  const pool = CREATURES.filter(c => c.rarity > 0 && reqMet(c));
+  if (!pool.length) return;
+  const weighted = pool.flatMap(c => Array(c.rarity === 3 ? 3*boost : c.rarity).fill(c));
   state.encounter = weighted[Math.floor(Math.random()*weighted.length)];
 }
 
@@ -336,7 +358,8 @@ function flee() { state.encounter = null; render(); }
 
 function feed(c) { if(state.berries<=0)return; state.berries-=1; c.hunger=clamp(c.hunger+25); maybeEvolve(c); save(); render(); }
 function rest(c) { c.energy=clamp(c.energy+15); maybeEvolve(c); save(); render(); }
-function play(c) { c.bond=clamp(c.bond+10); c.energy=clamp(c.energy-5); maybeEvolve(c); save(); render(); }
+// ponytail: energy gates play — tired creature won't bond; now energy matters beyond rest
+function play(c) { if(c.energy < 15) return; c.bond=clamp(c.bond+10); c.energy=clamp(c.energy-15); maybeEvolve(c); save(); render(); }
 // ponytail: evolve at bond>=100; replaces in-place with evolved form, keeps stats
 function maybeEvolve(c) {
   if (c.bond < 100) return;
@@ -368,23 +391,53 @@ function render() {
   if (!state.dex.length) {
     dex.innerHTML = `<div class="empty">No creatures yet. Complete a focus session!</div>`;
   } else {
-    dex.innerHTML = state.dex.map((c,i)=>`
+    dex.innerHTML = state.dex.map((c,i)=>{
+      const hearts = '❤️'.repeat(Math.floor(c.bond/25)) + '🤍'.repeat(4 - Math.floor(c.bond/25));
+      const tired = c.energy < 15 ? '<div class="hint" style="font-size:.7rem">Tired — rest first</div>' : '';
+      return `
       <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View in 3D">
         ${thumbCache[c.id] ? `<img class="deximg" src="${thumbCache[c.id]}" alt="${c.name}">` : `<div class="emoji">${c.emoji}</div>`}
         <div class="name">${c.name}</div>
+        ${c.bond >= 100 ? '<div style="font-size:.65rem;color:var(--pop)">MAX — can evolve</div>' : ''}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
         <div class="bar energy"><i style="width:${c.energy}%"></i></div>
         <div class="bar bond"><i style="width:${c.bond}%"></i></div>
+        <div style="font-size:.65rem;margin-top:.2rem">${hearts} ${c.bond}</div>
+        ${tired}
         <div class="actions" onclick="event.stopPropagation()">
           <button onclick="feed(state.dex[${i}])" title="Feed (1 berry)">🍎</button>
           <button onclick="rest(state.dex[${i}])" title="Rest">💤</button>
-          <button onclick="play(state.dex[${i}])" title="Play">🎾</button>
+          <button onclick="play(state.dex[${i}])" title="Play (needs energy)" ${c.energy<15?'disabled':''}>🎾</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
+  renderDexGrid();
   $('start').textContent = state.remaining===(state.mode==='break'?BREAK_MIN:FOCUS_MIN)*60 && !state.running ? 'Start' : (state.running?'Running…':'Resume');
   document.title = `${fmt(state.remaining)} · ${state.mode} · pomodoro-mon`;
 }
+
+// ponytail: dex tab — all 16 creatures, silhouette when unknown, requirement + owned state when known
+function renderDexGrid() {
+  const ownedIds = new Set(state.dex.map(c => c.id));
+  const baseIds = new Set(state.dex.map(c => CREATURES.find(x => x.id === c.id && x.evolvesTo)?.evolvesTo).filter(Boolean));
+  $('dexgrid').innerHTML = CREATURES.map(c => {
+    const owned = ownedIds.has(c.id) || baseIds.has(c.id);
+    if (!owned) {
+      const hint = c.req ? reqText(c) : 'Focus sessions to find';
+      return `<div class="dexitem locked"><div class="img">❓</div><div class="name">???</div><div class="req" title="Requirement">${hint}</div></div>`;
+    }
+    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View in 3D"><div class="img">${thumbCache[c.id] ? `<img src="${thumbCache[c.id]}" alt="${c.name}">` : c.emoji}</div><div class="name">${c.name}</div><div class="req">${c.type} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
+  }).join('');
+}
+function openDexViewer(id) {
+  const c = byId(id); if (!c) return;
+  $('viewer').hidden = false;
+  $('viewer-name').textContent = c.name;
+  $('viewer-type').textContent = `${c.type} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
+  newScene($('viewer-canvas'), c.color, c.shape, 'happy');
+}
+window.openDexViewer = openDexViewer;
 
 $('start').onclick = start;
 $('pause').onclick = pause;
@@ -394,6 +447,14 @@ $('flee').onclick = flee;
 $('viewer-close').onclick = () => $('viewer').hidden = true;
 $('viewer').onclick = e => { if (e.target.id === 'viewer') $('viewer').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').hidden = true; });
+function switchTab(tab) {
+  $('view-own').hidden = tab !== 'own';
+  $('view-dex').hidden = tab !== 'dex';
+  $('tab-own').classList.toggle('active', tab === 'own');
+  $('tab-dex').classList.toggle('active', tab === 'dex');
+}
+$('tab-own').onclick = () => switchTab('own');
+$('tab-dex').onclick = () => switchTab('dex');
 window.feed = feed; window.rest = rest; window.play = play;
 window.openViewer = openViewer; // expose for inline onclick
 function openViewer(i) {
