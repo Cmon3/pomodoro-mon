@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pomodoro-mon</title>
+<style>
+  :root { --bg:#1a1a2e; --panel:#16213e; --accent:#0f3460; --pop:#e94560; --txt:#eee; --muted:#889; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  /* ponytail: attribute hidden must beat any display rule (e.g. #viewer's display:flex) */
+  [hidden] { display:none !important; }
+  body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:1rem; }
+  h1 { font-size:1.4rem; margin-bottom:1rem; letter-spacing:.5px; }
+  h1 span { color:var(--pop); }
+  .card { background:var(--panel); border-radius:12px; padding:1.25rem; width:100%; max-width:420px; margin-bottom:1rem; }
+  #timer { font-size:3.5rem; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
+  #mode { text-align:center; color:var(--muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:2px; font-size:.8rem; }
+  .controls { display:flex; gap:.5rem; justify-content:center; }
+  button { background:var(--accent); color:var(--txt); border:none; border-radius:8px; padding:.6rem 1.1rem; font-size:1rem; cursor:pointer; }
+  button:hover { background:var(--pop); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .row { display:flex; gap:.5rem; justify-content:center; margin-top:.75rem; }
+  #encounter { text-align:center; }
+  #encounter .emoji { font-size:4rem; }
+  #encounter .name { font-size:1.2rem; margin:.25rem 0; }
+  #encounter .type { color:var(--muted); font-size:.85rem; }
+  #dex { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; }
+  .critter { background:var(--accent); border-radius:8px; padding:.6rem; text-align:center; }
+  .critter .emoji { font-size:1.8rem; }
+  .critter .name { font-size:.8rem; margin-top:.2rem; }
+  .bar { height:6px; background:#333; border-radius:3px; margin-top:.3rem; overflow:hidden; }
+  .bar > i { display:block; height:100%; }
+  .hunger > i { background:#e94560; } .energy > i { background:#4ecca3; } .bond > i { background:#f0a500; }
+  .actions { display:flex; gap:.25rem; justify-content:center; margin-top:.4rem; }
+  .actions button { padding:.25rem .5rem; font-size:.75rem; }
+  .empty { color:var(--muted); text-align:center; padding:1rem; }
+  .hint { color:var(--muted); font-size:.8rem; text-align:center; margin-top:.5rem; }
+  #encounter3d, #viewer-canvas { width:100%; height:200px; border-radius:8px; background:radial-gradient(circle,#1f2b4d,#0d1326); }
+  #viewer { position:fixed; inset:0; background:rgba(0,0,0,.75); display:flex; align-items:center; justify-content:center; z-index:10; }
+  #viewer-box { background:var(--panel); border-radius:16px; padding:1rem; width:min(92vw,440px); text-align:center; }
+  #viewer-canvas { height:300px; }
+  #viewer-box .title { font-size:1.1rem; margin:.75rem 0 .25rem; }
+  #viewer-box .type { color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
+  #viewer-box button { width:100%; }
+  .deximg { width:64px; height:64px; border-radius:8px; background:radial-gradient(circle,#223055,#0d1326); }
+</style>
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+</head>
+<body>
+  <h1>pomodoro<span>-mon</span></h1>
+
+  <div class="card">
+    <div id="mode">focus</div>
+    <div id="timer">25:00</div>
+    <div class="controls">
+      <button id="start">Start</button>
+      <button id="pause" disabled>Pause</button>
+      <button id="reset">Reset</button>
+    </div>
+    <div class="hint">Complete a focus session to encounter a creature.</div>
+    <div id="stats" class="hint"></div>
+  </div>
+
+  <div class="card" id="encounter-card" hidden>
+    <div id="encounter3d"></div>
+    <div id="encounter" style="text-align:center"></div>
+    <div class="row">
+      <button id="catch">Catch</button>
+      <button id="flee">Flee</button>
+    </div>
+  </div>
+
+  <div id="viewer" hidden>
+    <div id="viewer-box">
+      <div id="viewer-canvas"></div>
+      <div class="title" id="viewer-name"></div>
+      <div class="type" id="viewer-type"></div>
+      <div id="viewer-bars"></div>
+      <button id="viewer-close">Close</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:1rem;margin-bottom:.75rem;">My Creatures</h2>
+    <div id="dex"></div>
+  </div>
+
+<script>
+// ponytail: emoji "art" = zero IP risk, no sprite assets to ship
+// ponytail: color+shape drive procedural 3D; emoji stays for dex thumbnails; evolvesTo links stages
+const CREATURES = [
+  { id:'emberpup',  name:'Emberpup',  emoji:'🐕', type:'Fire',     rarity:1, evolvesTo:'flarehound', color:0xff7043, shape:'ears' },
+  { id:'flarehound',name:'Flarehound',emoji:'🐺', type:'Fire',     rarity:0, color:0xd84315, shape:'ears' },
+  { id:'aquakid',   name:'Aquakid',   emoji:'🐸', type:'Water',    rarity:1, evolvesTo:'tidescale', color:0x26a69a, shape:'fins' },
+  { id:'tidescale', name:'Tidescale', emoji:'🐊', type:'Water',    rarity:0, color:0x00796b, shape:'fins' },
+  { id:'sproutlet', name:'Sproutlet', emoji:'🌱', type:'Grass',    rarity:1, evolvesTo:'barkvenom', color:0x9ccc65, shape:'leaf' },
+  { id:'barkvenom', name:'Barkvenom', emoji:'🌳', type:'Grass',    rarity:0, color:0x558b2f, shape:'leaf' },
+  { id:'voltmouse', name:'Voltmouse', emoji:'⚡', type:'Electric', rarity:2, evolvesTo:'thundermane',color:0xffee58, shape:'spikes' },
+  { id:'thundermane',name:'Thundermane',emoji:'🦁',type:'Electric',rarity:0, color:0xfdd835, shape:'spikes' },
+  { id:'stoneback', name:'Stoneback', emoji:'🐢', type:'Rock',     rarity:2, evolvesTo:'boulderjaw', color:0xa1887f, shape:'shell' },
+  { id:'boulderjaw',name:'Boulderjaw',emoji:'🦎', type:'Rock',     rarity:0, color:0x6d4c41, shape:'shell' },
+  { id:'skyfin',    name:'Skyfin',    emoji:'🐦', type:'Flying',   rarity:2, evolvesTo:'galehawk',  color:0x90caf9, shape:'wings' },
+  { id:'galehawk',  name:'Galehawk',  emoji:'🦅', type:'Flying',   rarity:0, color:0x5c6bc0, shape:'wings' },
+  { id:'frostfox',  name:'Frostfox',  emoji:'🦊', type:'Ice',      rarity:3, evolvesTo:'glacieroth',color:0xb3e5fc, shape:'ears' },
+  { id:'glacieroth',name:'Glacieroth',emoji:'🐻‍❄️',type:'Ice',     rarity:0, color:0xe1f5fe, shape:'horns' },
+  { id:'ghostling', name:'Ghostling', emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'wraithorn', color:0xce93d8, shape:'horns' },
+  { id:'wraithorn', name:'Wraithorn', emoji:'💀', type:'Ghost',    rarity:0, color:0x9e9e9e, shape:'horns' },
+];
+const byId = id => CREATURES.find(c => c.id === id);
+
+// ---------- 3D creatures (procedural, no assets) ----------
+let renderer, activeScene, activeCam, activeMesh, rafId=null;
+function buildModel(color, shape, mood=null) {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color, flatShading:true, roughness:0.55 });
+  const dark = new THREE.MeshStandardMaterial({ color:new THREE.Color(color).multiplyScalar(0.85), flatShading:true, roughness:0.7 });
+  const white = new THREE.MeshStandardMaterial({ color:0xfdf9f0, roughness:0.5 });
+  // big round body (tamagoshi-style, face on the body), smaller head blob on top
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.8,24,20), mat); body.position.y = 0.7; body.scale.set(1.05,0.95,0.95); group.add(body);
+  const headBlob = new THREE.Mesh(new THREE.SphereGeometry(0.5,20,16), mat); headBlob.position.set(0,1.38,0.18); headBlob.scale.set(0.95,0.9,0.85); group.add(headBlob);
+  // belly patch
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.5,20,16), white); belly.position.set(0,0.55,0.25); belly.scale.set(0.85,0.75,0.55); group.add(belly);
+  // cute eyes: bigger iris + white catchlight → kawaii proportion
+  [-0.3,0.3].forEach(x => {
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.12,12,12), new THREE.MeshStandardMaterial({color:0x0a0a0a, roughness:0.25}));
+    iris.position.set(x,1.4,0.6); iris.scale.set(1,1.15,0.9); group.add(iris);
+    const hl1 = new THREE.Mesh(new THREE.SphereGeometry(0.04,6,6), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0xffffff, emissiveIntensity:0.7}));
+    hl1.position.set(x+0.04,1.46,0.7); group.add(hl1);
+    const hl2 = new THREE.Mesh(new THREE.SphereGeometry(0.02,6,6), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0xffffff, emissiveIntensity:0.7}));
+    hl2.position.set(x-0.03,1.35,0.68); group.add(hl2);
+  });
+  // blush
+  [-0.42,0.42].forEach(x => {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.07,8,8), new THREE.MeshStandardMaterial({color:0xff9aa2, transparent:true, opacity:0.9}));
+    b.position.set(x,1.3,0.58); b.scale.set(1.4,0.7,0.6); group.add(b);
+  });
+  // mouth: open smile, slightly bigger when happy (mood 'happy' passed in later)
+  const happy = mood === 'happy';
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(happy?0.075:0.055,8,8), new THREE.MeshStandardMaterial({color:0x2b0f0f}));
+  mouth.position.set(0,1.16,0.62); mouth.scale.set(1.3, happy?1.1:0.9, 0.6); group.add(mouth);
+  // subtle sparkle on top of head for charm
+  if (happy) {
+    const spark = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({ color:0xfff6bf, emissive:0xfff6bf, emissiveIntensity:0.7 }));
+    spark.position.set(0.55,1.78,0.45); spark.rotation.set(Math.random(),Math.random(),Math.random()); group.add(spark);
+    group.userData.spark = spark;
+  }
+  const cone = (r,h) => new THREE.Mesh(new THREE.ConeGeometry(r,h,6), dark);
+  const shapes = {
+    ears:()=>{ [-0.3,0.3].forEach(x=>{ const p=cone(0.2,0.7); p.position.set(x,1.85,0.1); p.rotation.z = x<0?0.25:-0.25; group.add(p); }); },
+    horns:()=>{ [-0.25,0.25].forEach(x=>{ const p=cone(0.12,0.8); p.position.set(x,1.75,0.05); p.rotation.z = x<0?0.55:-0.55; group.add(p); }); },
+    fins:()=>{ [-1,1].forEach(x=>{ const p=cone(0.22,0.95); p.position.set(x*0.7,1.15,0); p.rotation.z = x*1.1; group.add(p); });
+              const top=cone(0.18,0.8); top.position.set(0,1.95,0.1); top.rotation.x=0.1; group.add(top); },
+    leaf:()=>{ const leaf=new THREE.Mesh(new THREE.ConeGeometry(0.35,0.8,4,1), new THREE.MeshStandardMaterial({color:0x2e7d32, flatShading:true})); leaf.position.set(0,1.85,0.15); leaf.rotation.z=0.2; group.add(leaf); },
+    spikes:()=>{ for(let i=-1;i<=1;i++){ const p=cone(0.12,0.6); p.position.set(i*0.32,1.55,-0.05); p.rotation.x=-0.7; group.add(p); } },
+    shell:()=>{ const s=new THREE.Mesh(new THREE.SphereGeometry(0.62,20,16), dark); s.scale.set(1.05,0.85,0.85); s.position.set(0,0.75,-0.1); group.add(s); },
+    wings:()=>{ [-1,1].forEach(x=>{ const w=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.08,0.45), dark); w.position.set(x*0.7,1.55,0.05); w.rotation.z = x*0.5; group.add(w); }); },
+  };
+  (shapes[shape]||shapes.ears)();
+  // stubby feet
+  [-0.3,0.3].forEach(x=>{ const f=new THREE.Mesh(new THREE.SphereGeometry(0.2,10,10), dark); f.position.set(x,0.02,0.15); f.scale.set(1.2,0.7,1); group.add(f); });
+  return group;
+}
+function newScene(container, color, shape, mood) {
+  if (!window.THREE) return null;
+  const w = container.clientWidth || 320, h = container.clientHeight || 200;
+  if (!renderer) renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  container.innerHTML = ''; container.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff,1.05));
+  const dir = new THREE.DirectionalLight(0xffffff,0.85); dir.position.set(2,4,3); scene.add(dir);
+  const rim = new THREE.DirectionalLight(0xaad4ff,0.7); rim.position.set(-3,2,-2); scene.add(rim);
+  const cam = new THREE.PerspectiveCamera(40, w/h, 0.1, 100); cam.position.set(0,1.2,3.4); cam.lookAt(0,0.9,0);
+  // ground shadow disc
+  const g = new THREE.Mesh(new THREE.CircleGeometry(1.3,32), new THREE.MeshStandardMaterial({color:0x0d1326}));
+  g.rotation.x = -Math.PI/2; scene.add(g);
+  const mesh = buildModel(color, shape, mood); scene.add(mesh);
+  activeScene = scene; activeCam = cam; activeMesh = mesh;
+  cancelAnimationFrame(rafId);
+  (function loop(t){
+    rafId = requestAnimationFrame(loop);
+    if (activeMesh) {
+      activeMesh.rotation.y += 0.012;
+      const tt = t/1000;
+      activeMesh.position.y = Math.abs(Math.sin(tt*3))*0.12;
+      activeMesh.scale.y = 1 + Math.abs(Math.sin(tt*3))*0.05;
+      const sp = activeMesh.userData && activeMesh.userData.spark;
+      if (sp) sp.rotation.y += 0.1;
+    }
+    renderer.render(scene, cam);
+  })(0);
+  return renderer.domElement;
+}
+
+// ---------- dex thumbnails: snapshot each creature's 3D to a data URL once per load ----------
+const thumbCache = {}; // per-load only; no persistence → never goes stale when art changes
+function renderThumbnails() {
+  if (!window.THREE) return; // CDN failed → fall back to emoji
+  try {
+    const r = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+    const size = 96;
+    r.setSize(size, size);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xffffff,1.0));
+    const dir = new THREE.DirectionalLight(0xffffff,0.8); dir.position.set(2,4,3); scene.add(dir);
+    const rim = new THREE.DirectionalLight(0x88ccff,0.6); rim.position.set(-3,2,-2); scene.add(rim);
+    const g = new THREE.Mesh(new THREE.CircleGeometry(1.0,24), new THREE.MeshStandardMaterial({color:0x0d1326}));
+    g.rotation.x = -Math.PI/2; scene.add(g);
+    const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 100); cam.position.set(0,1.2,3.4); cam.lookAt(0,0.9,0);
+    for (const c of CREATURES) {
+      const m = buildModel(c.color, c.shape); scene.add(m);
+      r.render(scene, cam);
+      thumbCache[c.id] = r.domElement.toDataURL('image/png');
+      scene.remove(m);
+    }
+    r.dispose();
+  } catch {}
+}
+
+const FOCUS_MIN = 25, BREAK_MIN = 5;
+const SAVE_KEY = 'pomodoro-mon-v1';
+const TICK_MS = 1000;
+// ponytail: decay per minute of real time; modest so neglect isn't punishing
+const DECAY_PER_MIN = { hunger:2, energy:1, bond:0.5 };
+
+const $ = id => document.getElementById(id);
+const todayKey = () => new Date().toISOString().slice(0,10);
+const state = {
+  mode:'focus', remaining:FOCUS_MIN*60, running:false, interval:null,
+  encounter:null, dex:[], lastSeen:Date.now(), berries:0,
+  sessionsDone:0, lastSessionDay:null, streak:0, todayCount:0,
+};
+
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, remaining: state.mode==='break'?BREAK_MIN*60:FOCUS_MIN*60 });
+  } catch {}
+  applyDecay();
+  render();
+}
+function save() {
+  const { running, interval, encounter, ...rest } = state;
+  localStorage.setItem(SAVE_KEY, JSON.stringify(rest));
+}
+
+function applyDecay() {
+  const now = Date.now();
+  const mins = (now - (state.lastSeen||now)) / 60000;
+  if (mins > 0 && state.dex.length) {
+    state.dex.forEach(c => {
+      c.hunger = clamp(c.hunger - DECAY_PER_MIN.hunger * mins);
+      c.energy = clamp(c.energy - DECAY_PER_MIN.energy * mins);
+      c.bond   = clamp(c.bond   - DECAY_PER_MIN.bond   * mins);
+    });
+  }
+  state.lastSeen = now;
+}
+const clamp = (v, lo=0, hi=100) => Math.max(lo, Math.min(hi, v));
+
+function fmt(s) { const m=Math.floor(s/60), x=s%60; return `${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`; }
+
+function tick() {
+  state.remaining -= 1;
+  if (state.remaining <= 0) finishSession();
+  render();
+}
+function finishSession() {
+  clearInterval(state.interval); state.running=false;
+  if (state.mode === 'focus') {
+    state.berries += 1;
+    state.sessionsDone += 1;
+    // streak: consecutive days with >=1 focus session
+    const t = todayKey();
+    if (state.lastSessionDay !== t) {
+      const y = new Date(Date.now()-864e5).toISOString().slice(0,10);
+      state.streak = (state.lastSessionDay === y) ? state.streak+1 : 1;
+      state.lastSessionDay = t;
+      state.todayCount = 0;
+    }
+    state.todayCount += 1;
+    spawnEncounter();
+    notify('Focus done!', state.encounter ? `${state.encounter.name} appeared!` : 'Take a break.');
+    state.mode = 'break'; state.remaining = BREAK_MIN*60;
+  } else {
+    notify('Break over', 'Back to focus.');
+    state.mode = 'focus'; state.remaining = FOCUS_MIN*60;
+  }
+  save();
+}
+// ponytail: WebAudio beep, no asset file; notification needs permission, degrades silently
+function notify(title, body) {
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; o.type='sine';
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
+    o.start(); o.stop(ctx.currentTime+0.5);
+  } catch {}
+  if ('Notification' in window && Notification.permission==='granted') {
+    try { new Notification(title, { body }); } catch {}
+  }
+}
+function spawnEncounter() {
+  // ponytail: weighted by rarity (lower=common); base-form only, evolutions are earned
+  const pool = CREATURES.filter(c => c.rarity > 0);
+  const weighted = pool.flatMap(c => Array(c.rarity).fill(c));
+  state.encounter = weighted[Math.floor(Math.random()*weighted.length)];
+}
+
+function start() {
+  if(state.running)return;
+  if ('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+  state.running=true; state.interval=setInterval(tick,TICK_MS); render();
+}
+function pause() { if(!state.running)return; state.running=false; clearInterval(state.interval); render(); }
+function reset() { pause(); state.remaining=(state.mode==='break'?BREAK_MIN:FOCUS_MIN)*60; render(); save(); }
+
+function catchEncounter() {
+  if (!state.encounter) return;
+  const c = state.encounter;
+  const existing = state.dex.find(d => d.id === c.id);
+  if (existing) {
+    // duplicate: reward berries + bond instead of blocking
+    state.berries += 2;
+    existing.bond = clamp(existing.bond + 15);
+  } else {
+    state.dex.push({ id:c.id, name:c.name, emoji:c.emoji, type:c.type, rarity:c.rarity, hunger:80, energy:80, bond:20 });
+  }
+  state.encounter = null;
+  save(); render();
+}
+function flee() { state.encounter = null; render(); }
+
+function feed(c) { if(state.berries<=0)return; state.berries-=1; c.hunger=clamp(c.hunger+25); maybeEvolve(c); save(); render(); }
+function rest(c) { c.energy=clamp(c.energy+15); maybeEvolve(c); save(); render(); }
+function play(c) { c.bond=clamp(c.bond+10); c.energy=clamp(c.energy-5); maybeEvolve(c); save(); render(); }
+// ponytail: evolve at bond>=100; replaces in-place with evolved form, keeps stats
+function maybeEvolve(c) {
+  if (c.bond < 100) return;
+  const base = byId(c.id);
+  if (!base || !base.evolvesTo) return;
+  const evo = byId(base.evolvesTo);
+  if (!evo) return;
+  c.id = evo.id; c.name = evo.name; c.emoji = evo.emoji; c.type = evo.type;
+  c.bond = 100; // cap, evolved forms don't decay-bond past max
+  notify('Evolution!', `${evo.name} evolved from ${base.name}.`);
+}
+
+function render() {
+  $('timer').textContent = fmt(Math.max(0,state.remaining));
+  $('mode').textContent = state.mode;
+  $('start').disabled = state.running;
+  $('pause').disabled = !state.running;
+  $('stats').textContent = `Today: ${state.todayCount} · Streak: ${state.streak}d · Berries: ${state.berries} · Total: ${state.sessionsDone}`;
+
+  const ec = $('encounter-card');
+  if (state.encounter) {
+    ec.hidden = false;
+    $('encounter').innerHTML = `<div class="name">${state.encounter.name}</div><div class="type">${state.encounter.type} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
+    const em = byId(state.encounter.id) || state.encounter;
+    newScene($('encounter3d'), em.color, em.shape, 'happy');
+  } else { ec.hidden = true; }
+
+  const dex = $('dex');
+  if (!state.dex.length) {
+    dex.innerHTML = `<div class="empty">No creatures yet. Complete a focus session!</div>`;
+  } else {
+    dex.innerHTML = state.dex.map((c,i)=>`
+      <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View in 3D">
+        ${thumbCache[c.id] ? `<img class="deximg" src="${thumbCache[c.id]}" alt="${c.name}">` : `<div class="emoji">${c.emoji}</div>`}
+        <div class="name">${c.name}</div>
+        <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
+        <div class="bar energy"><i style="width:${c.energy}%"></i></div>
+        <div class="bar bond"><i style="width:${c.bond}%"></i></div>
+        <div class="actions" onclick="event.stopPropagation()">
+          <button onclick="feed(state.dex[${i}])" title="Feed (1 berry)">🍎</button>
+          <button onclick="rest(state.dex[${i}])" title="Rest">💤</button>
+          <button onclick="play(state.dex[${i}])" title="Play">🎾</button>
+        </div>
+      </div>`).join('');
+  }
+  $('start').textContent = state.remaining===(state.mode==='break'?BREAK_MIN:FOCUS_MIN)*60 && !state.running ? 'Start' : (state.running?'Running…':'Resume');
+  document.title = `${fmt(state.remaining)} · ${state.mode} · pomodoro-mon`;
+}
+
+$('start').onclick = start;
+$('pause').onclick = pause;
+$('reset').onclick = reset;
+$('catch').onclick = catchEncounter;
+$('flee').onclick = flee;
+$('viewer-close').onclick = () => $('viewer').hidden = true;
+$('viewer').onclick = e => { if (e.target.id === 'viewer') $('viewer').hidden = true; };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').hidden = true; });
+window.feed = feed; window.rest = rest; window.play = play;
+window.openViewer = openViewer; // expose for inline onclick
+function openViewer(i) {
+  const c = state.dex[i];
+  if (!c) return;
+  $('viewer').hidden = false;
+  $('viewer-name').textContent = c.name;
+  $('viewer-type').textContent = `${c.type} · bond ${c.bond}`;
+  const em = byId(c.id) || c;
+  newScene($('viewer-canvas'), em.color, em.shape, c.bond >= 70 ? 'happy' : null);
+}
+
+// ponytail: self-check — runs in console, fails loud if logic breaks
+(function check() {
+  console.assert(clamp(120)===100, 'clamp caps at 100');
+  console.assert(clamp(-5)===0, 'clamp floors at 0');
+  // weighted spawn: rarity 1 should appear more than rarity 3 over many pulls
+  const counts = {};
+  for (let i=0;i<3000;i++) {
+    state.encounter = null;
+    spawnEncounter();
+    if (state.encounter) counts[state.encounter.id] = (counts[state.encounter.id]||0)+1;
+  }
+  console.assert(counts['emberpup'] > counts['frostfox'], 'rarity weighting: common > rare');
+  console.assert(counts['frostfox'] > 0, 'rare creatures do spawn');
+  // decay over 60 min: hunger drops ~120 but clamps to 0
+  state.dex = [{ id:'t', name:'t', emoji:'🦊', type:'Ice', rarity:1, hunger:100, energy:100, bond:100 }];
+  state.lastSeen = Date.now() - 60*60*1000;
+  applyDecay();
+  console.assert(state.dex[0].hunger===0, 'decay clamps at 0');
+  // evolution: bond>=100 + has evolvesTo → transforms in place
+  state.dex = [{ id:'emberpup', name:'Emberpup', emoji:'🐕', type:'Fire', rarity:1, hunger:80, energy:80, bond:100 }];
+  maybeEvolve(state.dex[0]);
+  console.assert(state.dex[0].id==='flarehound', 'evolution transforms creature');
+  console.assert(state.dex[0].emoji==='🐺', 'evolution updates emoji');
+  console.log('pomodoro-mon self-check: OK');
+})();
+
+renderThumbnails(); // pre-warm dex thumbnails (falls back to emoji if CDN blocked)
+load();
+</script>
+</body>
+</html>
