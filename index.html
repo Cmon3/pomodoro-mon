@@ -202,6 +202,10 @@ function load() {
       // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
       state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
       state.savedAt = s.savedAt || null;
+      // ponytail: repair saves corrupted by the old always-on self-check (last write had mode:'break', remaining:300)
+      if (mode === 'break' && remaining === BREAK_MIN*60 && !s.userVerifiedBreak) {
+        state.mode = 'focus'; state.remaining = FOCUS_MIN*60;
+      }
     }
   } catch {}
   applyDecay();
@@ -575,8 +579,10 @@ function openViewer(i) {
   $('viewer-canvas').innerHTML = `<img class="pokeimg" src="${art(em)}" alt="${em.name}">`;
 }
 
-// ponytail: self-check — runs in console, fails loud if logic breaks
-(function check() {
+// ponytail: self-check — runs ONLY locally or with ?debug=1, failing loud if logic breaks
+// It mutates state + calls save(), so it must never run on the live site
+const DEBUG_SELF_CHECK = location.hostname === 'localhost' || new URLSearchParams(location.search).has('debug');
+if (DEBUG_SELF_CHECK) (function check() {
   console.assert(clamp(120)===100, 'clamp caps at 100');
   console.assert(clamp(-5)===0, 'clamp floors at 0');
   // weighted spawn: rarity 1 should appear more than rarity 3 over many pulls
