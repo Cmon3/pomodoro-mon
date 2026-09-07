@@ -279,7 +279,7 @@ function fmt(s) { const m=Math.floor(s/60), x=s%60; return `${String(m).padStart
 
 function tick() {
   state.remaining -= 1;
-  if (state.remaining <= 0) finishSession();
+  if (state.remaining <= 0) { finishSession(); render(); } // ponytail: render after session transition too — was leaving UI frozen at 00:01
   else { render(); save(); } // ponytail: save each second so reload resumes at current time
 }
 function finishSession() {
