@@ -282,6 +282,7 @@ function applyDecay() {
       // ponytail: neglect escape — hunger hits 0 and stays there for 24h
       if (c.hunger <= 0) { if (!c.neglectSince) c.neglectSince = now; }
       else { c.neglectSince = null; }
+      maybeEvolve(c); // ponytail: trigger any pending evolutions from bond gains
       if (c.neglectSince && now - c.neglectSince > ESCAPE_MS) escaped.push(c);
     });
     if (escaped.length) {
@@ -490,11 +491,14 @@ function render() {
       const btn = (icon, fn, title, disabled) => `<button onclick="${fn}(state.dex[${i}])" title="${title}" ${disabled ? 'disabled' : ''}>${icon}</button>`;
       const busy = !!c.status;
       const cancel = busy ? `<button onclick="cancelStatus(state.dex[${i}])" title="Cancel" style="font-size:.6rem">✕</button>` : '';
+      const base = byId(c.id);
+      const canEvolve = base && base.evolvesTo && c.bond >= 100;
+      const evolveHint = canEvolve ? '<div class="status-badge">MAX — play to evolve!</div>' : '';
       return `
       <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View">
-        <img class="deximg" src="${anim(byId(c.id)||c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated;background:none;box-shadow:none">
-        <div class="name">#${String((byId(c.id)||c).pid).padStart(3,'0')} ${c.name}</div>
-        ${c.bond >= 100 ? '<div class="status-badge">MAX — can evolve</div>' : ''}
+        <img class="deximg" src="${anim(base||c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated;background:none;box-shadow:none">
+        <div class="name">#${String((base||c).pid).padStart(3,'0')} ${c.name}</div>
+        ${evolveHint}
         ${statusLabel}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
         <div class="bar energy"><i style="width:${c.energy}%"></i></div>
@@ -588,7 +592,8 @@ function showViewer(c, owned) {
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
   const status = owned && owned.status ? `${owned.status}… ${Math.ceil((owned.statusUntil - Date.now())/1000)}s` : '';
-  const info = owned ? `${typeStr(c)} · bond ${owned.bond}${status ? ' · ' + status : ''}${owned.energy < 15 ? ' · tired' : ''}` : `${typeStr(c)} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
+  const canEvolveOwned = owned && byId(owned.id)?.evolvesTo && owned.bond >= 100;
+  const info = owned ? `${typeStr(c)} · bond ${owned.bond}${status ? ' · ' + status : ''}${owned.energy < 15 ? ' · tired' : ''}${canEvolveOwned ? ' · play to evolve!' : ''}` : `${typeStr(c)} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
   $('viewer-type').textContent = info;
   const img = state.viewMode === 'anim'
     ? `<img src="${anim(c)}" alt="${c.name}" style="image-rendering:pixelated;max-height:260px;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`
