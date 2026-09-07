@@ -43,6 +43,8 @@
   #viewer-box .type { color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
   #viewer-box button { width:100%; }
   .deximg { width:64px; height:64px; border-radius:8px; background:radial-gradient(circle,#223055,#0d1326); }
+  .pokeimg { width:100%; max-height:300px; object-fit:contain; filter:drop-shadow(0 10px 20px rgba(0,0,0,.5)); animation:floaty 2.8s ease-in-out infinite; }
+  @keyframes floaty { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-8px) rotate(1deg); } }
   .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; }
   .tab { padding:.4rem .9rem; font-size:.9rem; border-radius:8px; background:transparent; color:var(--muted); border:1px solid var(--accent); }
   .tab.active { background:var(--accent); color:var(--txt); }
@@ -98,35 +100,22 @@
     </div>
     <div id="view-own"><div id="dex"></div></div>
     <div id="view-dex" hidden>
-      <div class="hint" style="margin-bottom:.6rem">Catch them all. Hidden creatures have requirements below.</div>
+      <div class="hint" style="margin-bottom:.6rem">Catch them all. Hidden Pokémon have requirements below.</div>
+      <input id="dexsearch" type="search" placeholder="Search…" style="width:100%;padding:.5rem .7rem;border-radius:8px;border:1px solid var(--accent);background:#0d1326;color:var(--txt);margin-bottom:.6rem">
       <div class="dexgrid" id="dexgrid"></div>
     </div>
   </div>
 
+<script src="creatures.js"></script>
 <script>
 // ponytail: personal-use Pokémon branch — official artwork via PokéAPI sprites repo (no key);
 // original creatures preserved in `original-creatures` branch for public deploy
-const CREATURES = [
-  { id:'bulbasaur', pid:1,   name:'Bulbasaur',  emoji:'🐢', type:'Grass',    rarity:1, evolvesTo:'ivysaur' },
-  { id:'ivysaur',   pid:2,   name:'Ivysaur',    emoji:'🌺', type:'Grass',    rarity:0 },
-  { id:'charmander',pid:4,   name:'Charmander', emoji:'🔥', type:'Fire',     rarity:1, evolvesTo:'charmeleon' },
-  { id:'charmeleon',pid:5,   name:'Charmeleon', emoji:'🦎', type:'Fire',     rarity:0 },
-  { id:'squirtle',  pid:7,   name:'Squirtle',   emoji:'🐢', type:'Water',    rarity:1, evolvesTo:'wartortle' },
-  { id:'wartortle', pid:8,   name:'Wartortle',  emoji:'💧', type:'Water',    rarity:0 },
-  { id:'pidgey',    pid:16,  name:'Pidgey',     emoji:'🐦', type:'Flying',   rarity:1, evolvesTo:'pidgeotto' },
-  { id:'pidgeotto', pid:17,  name:'Pidgeotto',  emoji:'🦅', type:'Flying',   rarity:0 },
-  { id:'abra',      pid:63,  name:'Abra',       emoji:'🔮', type:'Psychic',  rarity:2, evolvesTo:'kadabra' },
-  { id:'kadabra',   pid:64,  name:'Kadabra',    emoji:'🥄', type:'Psychic',  rarity:0 },
-  { id:'magikarp',  pid:129, name:'Magikarp',   emoji:'🐟', type:'Water',    rarity:2, evolvesTo:'gyarados' },
-  { id:'gyarados',  pid:130, name:'Gyarados',   emoji:'🌊', type:'Water',    rarity:0 },
-  { id:'eevee',     pid:133, name:'Eevee',      emoji:'🦊', type:'Normal',   rarity:2, evolvesTo:'vaporeon' },
-  { id:'vaporeon',  pid:134, name:'Vaporeon',   emoji:'💦', type:'Water',    rarity:0 },
-  { id:'gastly',    pid:92,  name:'Gastly',     emoji:'👻', type:'Ghost',    rarity:3, evolvesTo:'haunter', req:{ minSessions:20 } },
-  { id:'haunter',   pid:93,  name:'Haunter',    emoji:'😈', type:'Ghost',    rarity:0 },
-];
 const byId = id => CREATURES.find(c => c.id === id);
 // official-artwork PNG by national dex number (PokéAPI sprites repo)
 const art = c => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${c.pid}.png`;
+// animated Gen-5-style sprite (idle motion); exists for pid ≤ 649 — we only ship 1–251
+const anim = c => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${c.pid}.gif`;
+const typeStr = c => (c.types ? c.types.join('/') : c.type); // compat: generated data uses types[]
 const reqMet = (c) => !c.req || ( (c.req.minStreak||0) <= state.streak && (c.req.minSessions||0) <= state.sessionsDone );
 const reqText = (c) => !c.req ? 'None' : [c.req.minStreak ? `Streak ≥ ${c.req.minStreak}d` : null, c.req.minSessions ? `Total ≥ ${c.req.minSessions}` : null].filter(Boolean).join(' · ');
 
@@ -148,6 +137,8 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, remaining: state.mode==='break'?BREAK_MIN*60:FOCUS_MIN*60 });
+    // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
+    state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
   } catch {}
   applyDecay();
   render();
@@ -242,7 +233,7 @@ function catchEncounter() {
     state.berries += 2;
     existing.bond = clamp(existing.bond + 15);
   } else {
-    state.dex.push({ id:c.id, name:c.name, emoji:c.emoji, type:c.type, rarity:c.rarity, hunger:80, energy:80, bond:20 });
+    state.dex.push({ id:c.id, pid:c.pid, name:c.name, hunger:80, energy:80, bond:20 });
   }
   state.encounter = null;
   save(); render();
@@ -260,7 +251,7 @@ function maybeEvolve(c) {
   if (!base || !base.evolvesTo) return;
   const evo = byId(base.evolvesTo);
   if (!evo) return;
-  c.id = evo.id; c.name = evo.name; c.emoji = evo.emoji; c.type = evo.type;
+  c.id = evo.id; c.pid = evo.pid; c.name = evo.name;
   c.bond = 100; // cap, evolved forms don't decay-bond past max
   notify('Evolution!', `${evo.name} evolved from ${base.name}.`);
 }
@@ -275,9 +266,9 @@ function render() {
   const ec = $('encounter-card');
   if (state.encounter) {
     ec.hidden = false;
-    $('encounter').innerHTML = `<div class="name">${state.encounter.name}</div><div class="type">${state.encounter.type} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
+    $('encounter').innerHTML = `<div class="name">${state.encounter.name}</div><div class="type">${typeStr(state.encounter)} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
     const em = byId(state.encounter.id) || state.encounter;
-    $('encounter3d').innerHTML = `<img src="${art(em)}" alt="${em.name}" style="width:100%;max-height:200px;object-fit:contain;filter:drop-shadow(0 8px 16px rgba(0,0,0,.4))">`;
+    $('encounter3d').innerHTML = `<img src="${anim(em)}" alt="${em.name}" style="image-rendering:pixelated;height:110px;filter:drop-shadow(0 8px 16px rgba(0,0,0,.4))">`;
   } else { ec.hidden = true; }
 
   const dex = $('dex');
@@ -289,7 +280,7 @@ function render() {
       const tired = c.energy < 15 ? '<div class="hint" style="font-size:.7rem">Tired — rest first</div>' : '';
       return `
       <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View in 3D">
-        <img class="deximg" src="${art(byId(c.id)||c)}" alt="${c.name}">
+        <img class="deximg" src="${anim(byId(c.id)||c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated;background:none;box-shadow:none">
         <div class="name">${c.name}</div>
         ${c.bond >= 100 ? '<div style="font-size:.65rem;color:var(--pop)">MAX — can evolve</div>' : ''}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
@@ -312,23 +303,25 @@ function render() {
 
 // ponytail: dex tab — all 16 creatures, silhouette when unknown, requirement + owned state when known
 function renderDexGrid() {
+  const q = ($('dexsearch')?.value || '').toLowerCase();
   const ownedIds = new Set(state.dex.map(c => c.id));
   const baseIds = new Set(state.dex.map(c => CREATURES.find(x => x.id === c.id && x.evolvesTo)?.evolvesTo).filter(Boolean));
-  $('dexgrid').innerHTML = CREATURES.map(c => {
+  const list = q ? CREATURES.filter(c => c.name.toLowerCase().includes(q)) : CREATURES;
+  $('dexgrid').innerHTML = list.map(c => {
     const owned = ownedIds.has(c.id) || baseIds.has(c.id);
     if (!owned) {
       const hint = c.req ? reqText(c) : 'Focus sessions to find';
       return `<div class="dexitem locked"><div class="img">❓</div><div class="name">???</div><div class="req" title="Requirement">${hint}</div></div>`;
     }
-    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View"><div class="img"><img src="${art(c)}" alt="${c.name}"></div><div class="name">${c.name}</div><div class="req">${c.type} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
+    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View"><div class="img"><img src="${anim(c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated"></div><div class="name">${c.name}</div><div class="req">${typeStr(c)} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
   }).join('');
 }
 function openDexViewer(id) {
   const c = byId(id); if (!c) return;
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
-  $('viewer-type').textContent = `${c.type} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
-  $('viewer-canvas').innerHTML = `<img src="${art(c)}" alt="${c.name}" style="width:100%;max-height:300px;object-fit:contain;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`;
+  $('viewer-type').textContent = `${typeStr(c)} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
+  $('viewer-canvas').innerHTML = `<img class="pokeimg" src="${art(c)}" alt="${c.name}">`;
 }
 window.openDexViewer = openDexViewer;
 
@@ -348,6 +341,7 @@ function switchTab(tab) {
 }
 $('tab-own').onclick = () => switchTab('own');
 $('tab-dex').onclick = () => switchTab('dex');
+$('dexsearch').oninput = renderDexGrid;
 window.feed = feed; window.rest = rest; window.play = play;
 window.openViewer = openViewer; // expose for inline onclick
 function openViewer(i) {
@@ -355,9 +349,9 @@ function openViewer(i) {
   if (!c) return;
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
-  $('viewer-type').textContent = `${c.type} · bond ${c.bond}${c.energy < 15 ? ' · tired' : ''}`;
+  $('viewer-type').textContent = `${typeStr(byId(c.id)||c)} · bond ${c.bond}${c.energy < 15 ? ' · tired' : ''}`;
   const em = byId(c.id) || c;
-  $('viewer-canvas').innerHTML = `<img src="${art(em)}" alt="${c.name}" style="width:100%;max-height:300px;object-fit:contain;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`;
+  $('viewer-canvas').innerHTML = `<img class="pokeimg" src="${art(em)}" alt="${em.name}">`;
 }
 
 // ponytail: self-check — runs in console, fails loud if logic breaks
@@ -371,15 +365,20 @@ function openViewer(i) {
     spawnEncounter();
     if (state.encounter) counts[state.encounter.id] = (counts[state.encounter.id]||0)+1;
   }
-  console.assert(counts['bulbasaur'] > counts['gastly'], 'rarity weighting: common > rare');
-  console.assert(counts['gastly'] > 0, 'rare creatures do spawn once req is met (self-check has 0 sessions, so gastly gated → expect gated); skip check');
+  console.assert(counts['bulbasaur'] > 0, 'common creatures spawn');
+  console.assert(counts['mewtwo'] == null, 'gated legendaries hidden until requirements met');
+  // rarity weighting: common (rarity 1) should outnumber uncapped rares (rarity 3) among spawnable pool
+  const spawnable = CREATURES.filter(c => c.rarity > 0 && reqMet(c));
+  const commons = Object.entries(counts).filter(([id]) => spawnable.find(c => c.id === id)?.rarity === 1).reduce((a,[,n]) => a+n, 0);
+  const rares   = Object.entries(counts).filter(([id]) => spawnable.find(c => c.id === id)?.rarity === 3).reduce((a,[,n]) => a+n, 0);
+  console.assert(commons > rares, 'weighted spawn favors commons');
   // decay over 60 min: hunger drops ~120 but clamps to 0
-  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', emoji:'🐢', type:'Grass', rarity:1, hunger:100, energy:100, bond:100 }];
+  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', hunger:100, energy:100, bond:100 }];
   state.lastSeen = Date.now() - 60*60*1000;
   applyDecay();
   console.assert(state.dex[0].hunger===0, 'decay clamps at 0');
   // evolution: bond>=100 + has evolvesTo → transforms in place
-  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', emoji:'🐢', type:'Grass', rarity:1, hunger:80, energy:80, bond:100 }];
+  state.dex = [{ id:'bulbasaur', pid:1, name:'Bulbasaur', hunger:80, energy:80, bond:100 }];
   maybeEvolve(state.dex[0]);
   console.assert(state.dex[0].id==='ivysaur', 'evolution transforms creature');
   console.assert(state.dex[0].pid===2, 'evolution updates pid');
