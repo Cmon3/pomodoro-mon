@@ -17,6 +17,9 @@
   #timer { font-size:3.5rem; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
   #mode { text-align:center; color:var(--muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:2px; font-size:.8rem; }
   .controls { display:flex; gap:.5rem; justify-content:center; }
+  .subcontrols { display:flex; gap:.5rem; justify-content:center; margin-top:.6rem; flex-wrap:wrap; }
+  .subcontrols button { font-size:.8rem; background:transparent; color:var(--muted); border:1px solid var(--accent); border-radius:8px; padding:.45rem .85rem; }
+  .subcontrols button:hover { color:var(--txt); background:rgba(255,255,255,.05); }
   button { background:var(--accent); color:var(--txt); border:none; border-radius:8px; padding:.6rem 1.1rem; font-size:1rem; cursor:pointer; }
   button:hover { background:var(--pop); }
   button:disabled { opacity:.4; cursor:not-allowed; }
@@ -71,7 +74,12 @@
       <button id="pause" disabled>Pause</button>
       <button id="reset">Reset</button>
     </div>
-    <button id="next" style="margin-top:.6rem;background:transparent;color:var(--muted);border:1px solid var(--accent);font-size:.85rem">Next session (no points)</button>
+    <div class="subcontrols">
+      <button id="next">Next session (no points)</button>
+      <button id="export">Export save</button>
+      <button id="import">Import save</button>
+    </div>
+    <div id="saved" class="hint" style="margin-top:.25rem"></div>
     <div class="hint">Complete a focus session to encounter a creature.</div>
     <div id="stats" class="hint"></div>
   </div>
@@ -138,16 +146,23 @@ const state = {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    // ponytail: always start fresh in focus mode — resuming mid-break is confusing UX; also reset cycleCount to avoid jumping into long break after one session
-    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, mode:'focus', remaining: FOCUS_MIN*60, cycleCount:0 });
-    // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
-    state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
+    if (s) {
+      // ponytail: persist timer progress across reloads, but reset cycleCount so you don't jump to long break after one session
+      const mode = ['focus','break','longbreak'].includes(s.mode) ? s.mode : 'focus';
+      const full = mode==='break'?BREAK_MIN*60 : mode==='longbreak'?LONG_BREAK_MIN*60 : FOCUS_MIN*60;
+      const remaining = typeof s.remaining==='number' && s.remaining > 0 ? s.remaining : full;
+      Object.assign(state, s, { running:false, interval:null, encounter:null, mode, remaining, cycleCount:0 });
+      // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
+      state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
+      state.savedAt = s.savedAt || null;
+    }
   } catch {}
   applyDecay();
   render();
 }
 function save() {
   const { running, interval, encounter, ...rest } = state;
+  rest.savedAt = Date.now();
   localStorage.setItem(SAVE_KEY, JSON.stringify(rest));
 }
 
@@ -323,7 +338,39 @@ function render() {
   }
   renderDexGrid();
   $('start').textContent = state.remaining===((state.mode==='break'?BREAK_MIN:state.mode==='longbreak'?LONG_BREAK_MIN:FOCUS_MIN)*60) && !state.running ? 'Start' : (state.running?'Running…':'Resume');
+  const when = state.savedAt ? new Date(state.savedAt).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'never';
+  $('saved').textContent = `Saved: ${when}`;
   document.title = `${fmt(state.remaining)} · ${modeLabel} · pomodoro-mon`;
+}
+
+function exportSave() {
+  const data = localStorage.getItem(SAVE_KEY);
+  if (!data) return;
+  const blob = new Blob([data], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pomodoro-mon-save.json';
+  a.click();
+  notify('Save exported', 'Keep the .json file safe.');
+}
+function importSave() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        localStorage.setItem(SAVE_KEY, ev.target.result);
+        load();
+        notify('Save imported', 'Progress restored.');
+      } catch (err) { notify('Import failed', err.message); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
 }
 
 // ponytail: dex tab — all 16 creatures, silhouette when unknown, requirement + owned state when known
@@ -354,6 +401,8 @@ $('start').onclick = start;
 $('pause').onclick = pause;
 $('reset').onclick = reset;
 $('next').onclick = nextSession;
+$('export').onclick = exportSave;
+$('import').onclick = importSave;
 $('catch').onclick = catchEncounter;
 $('flee').onclick = flee;
 $('viewer-close').onclick = () => $('viewer').hidden = true;
