@@ -71,6 +71,7 @@
       <button id="pause" disabled>Pause</button>
       <button id="reset">Reset</button>
     </div>
+    <button id="next" style="margin-top:.6rem;background:transparent;color:var(--muted);border:1px solid var(--accent);font-size:.85rem">Next session (no points)</button>
     <div class="hint">Complete a focus session to encounter a creature.</div>
     <div id="stats" class="hint"></div>
   </div>
@@ -137,8 +138,8 @@ const state = {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    // ponytail: always start fresh in focus mode — resuming mid-break is confusing UX
-    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, mode:'focus', remaining: FOCUS_MIN*60 });
+    // ponytail: always start fresh in focus mode — resuming mid-break is confusing UX; also reset cycleCount to avoid jumping into long break after one session
+    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, mode:'focus', remaining: FOCUS_MIN*60, cycleCount:0 });
     // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
     state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
   } catch {}
@@ -232,6 +233,20 @@ function start() {
 }
 function pause() { if(!state.running)return; state.running=false; clearInterval(state.interval); render(); }
 function reset() { pause(); state.remaining=(state.mode==='break'?BREAK_MIN:state.mode==='longbreak'?LONG_BREAK_MIN:FOCUS_MIN)*60; render(); save(); }
+// ponytail: skip-forward through session types, no points/encounters — useful for testing/short days
+function nextSession() {
+  pause();
+  state.encounter = null;
+  if (state.mode === 'focus') {
+    state.cycleCount += 1;
+    if (state.cycleCount >= 4) { state.cycleCount = 0; state.mode = 'longbreak'; }
+    else { state.mode = 'break'; }
+  } else {
+    state.mode = 'focus';
+  }
+  state.remaining = (state.mode==='break'?BREAK_MIN:state.mode==='longbreak'?LONG_BREAK_MIN:FOCUS_MIN)*60;
+  render(); save();
+}
 
 function catchEncounter() {
   if (!state.encounter) return;
@@ -338,6 +353,7 @@ window.openDexViewer = openDexViewer;
 $('start').onclick = start;
 $('pause').onclick = pause;
 $('reset').onclick = reset;
+$('next').onclick = nextSession;
 $('catch').onclick = catchEncounter;
 $('flee').onclick = flee;
 $('viewer-close').onclick = () => $('viewer').hidden = true;
