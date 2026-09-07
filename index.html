@@ -220,7 +220,7 @@ function fmt(s) { const m=Math.floor(s/60), x=s%60; return `${String(m).padStart
 function tick() {
   state.remaining -= 1;
   if (state.remaining <= 0) finishSession();
-  render();
+  else { render(); save(); } // ponytail: save each second so reload resumes at current time
 }
 function finishSession() {
   clearInterval(state.interval); state.running=false;
@@ -454,6 +454,8 @@ $('flee').onclick = flee;
 $('viewer-close').onclick = () => $('viewer').hidden = true;
 $('viewer').onclick = e => { if (e.target.id === 'viewer') $('viewer').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').hidden = true; });
+window.addEventListener('beforeunload', save); // extra safety for tab-close while paused
+window.addEventListener('pagehide', save);    // mobile Safari doesn't always fire beforeunload
 function switchTab(tab) {
   $('view-own').hidden = tab !== 'own';
   $('view-dex').hidden = tab !== 'dex';
