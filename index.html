@@ -169,6 +169,13 @@ const SAVE_KEY = 'pomodoro-mon-v2-pokemon'; // ponytail: new key = fresh save; o
 const TICK_MS = 1000;
 // ponytail: decay per minute of real time; modest so neglect isn't punishing
 const DECAY_PER_MIN = { hunger:2, energy:1, bond:0.5 };
+// ponytail: status durations/effects per second — makes creature care dynamic over real time (long durations so it doesn't demand constant clicks)
+const STATUS = {
+  eating:  { sec:300, hunger:0.34 },     // ~5 min, restores full hunger
+  playing: { sec:600, bond:0.17, energy:-0.12 }, // ~10 min, maxes bond
+  sleeping:{ sec:7200, energy:0.03, hunger:-0.005 }, // ~2 hours, full energy recovery
+};
+const ESCAPE_MS = 72 * 60 * 60 * 1000; // ponytail: creature flees if hunger stays at 0 for 72h
 
 const $ = id => document.getElementById(id);
 const todayKey = () => new Date().toISOString().slice(0,10);
@@ -176,6 +183,8 @@ const state = {
   mode:'focus', remaining:FOCUS_MIN*60, running:false, interval:null,
   encounter:null, dex:[], lastSeen:Date.now(), berries:0,
   sessionsDone:0, lastSessionDay:null, streak:0, todayCount:0, cycleCount:0,
+  viewMode:'anim', // viewer image mode: 'anim' (sprite) or 'art' (official artwork)
+  statusLoop:null,
 };
 
 function load() {
@@ -193,10 +202,12 @@ function load() {
     }
   } catch {}
   applyDecay();
+  // ponytail: resume real-time status loop if any creature is busy after load
+  if (state.dex.some(c => c.status)) startStatusLoop();
   render();
 }
 function save() {
-  const { running, interval, encounter, ...rest } = state;
+  const { running, interval, encounter, statusLoop, ...rest } = state;
   rest.savedAt = Date.now();
   localStorage.setItem(SAVE_KEY, JSON.stringify(rest));
 }
@@ -204,14 +215,56 @@ function save() {
 function applyDecay() {
   const now = Date.now();
   const mins = (now - (state.lastSeen||now)) / 60000;
+  const secs = (now - (state.lastSeen||now)) / 1000;
   if (mins > 0 && state.dex.length) {
+    const escaped = [];
     state.dex.forEach(c => {
       c.hunger = clamp(c.hunger - DECAY_PER_MIN.hunger * mins);
       c.energy = clamp(c.energy - DECAY_PER_MIN.energy * mins);
       c.bond   = clamp(c.bond   - DECAY_PER_MIN.bond   * mins);
+      // ponytail: resolve offline statuses — apply their effects for elapsed time up to status expiry
+      if (c.status && c.statusUntil > state.lastSeen) {
+        const activeSecs = Math.min(secs, (c.statusUntil - state.lastSeen) / 1000);
+        applyStatusEffects(c, activeSecs);
+        maybeEvolve(c);
+        if (now >= c.statusUntil) c.status = null;
+      }
+      // ponytail: neglect escape — hunger hits 0 and stays there for 24h
+      if (c.hunger <= 0) { if (!c.neglectSince) c.neglectSince = now; }
+      else { c.neglectSince = null; }
+      if (c.neglectSince && now - c.neglectSince > ESCAPE_MS) escaped.push(c);
     });
+    if (escaped.length) {
+      escaped.forEach(c => notify('A Pokémon fled', `${c.name} left because hunger hit zero for too long.`));
+      state.dex = state.dex.filter(c => !escaped.includes(c));
+    }
   }
   state.lastSeen = now;
+}
+function applyStatusEffects(c, secs) {
+  const s = c.status && STATUS[c.status];
+  if (!s) return;
+  if (s.hunger)  c.hunger = clamp(c.hunger + s.hunger * secs);
+  if (s.energy)  c.energy = clamp(c.energy + s.energy * secs);
+  if (s.bond)    c.bond   = clamp(c.bond   + s.bond   * secs);
+}
+// ponytail: real-time status loop — runs only while any creature is busy
+function processStatuses() {
+  const now = Date.now();
+  let busy = false;
+  state.dex.forEach(c => {
+    if (!c.status) return;
+    if (now >= c.statusUntil) { c.status = null; return; }
+    applyStatusEffects(c, 1);
+    maybeEvolve(c);
+    busy = true;
+  });
+  if (busy) { render(); save(); }
+  if (!busy && state.statusLoop) { clearInterval(state.statusLoop); state.statusLoop = null; }
+}
+function startStatusLoop() {
+  if (state.statusLoop) return;
+  state.statusLoop = setInterval(processStatuses, 1000);
 }
 const clamp = (v, lo=0, hi=100) => Math.max(lo, Math.min(hi, v));
 
@@ -306,6 +359,7 @@ function catchEncounter() {
     // duplicate: reward berries + bond instead of blocking
     state.berries += 2;
     existing.bond = clamp(existing.bond + 15);
+    maybeEvolve(existing);
   } else {
     state.dex.push({ id:c.id, pid:c.pid, name:c.name, hunger:80, energy:80, bond:20 });
   }
@@ -314,10 +368,28 @@ function catchEncounter() {
 }
 function flee() { state.encounter = null; render(); }
 
-function feed(c) { if(state.berries<=0)return; state.berries-=1; c.hunger=clamp(c.hunger+25); maybeEvolve(c); save(); render(); }
-function rest(c) { c.energy=clamp(c.energy+15); maybeEvolve(c); save(); render(); }
-// ponytail: energy gates play — tired creature won't bond; now energy matters beyond rest
-function play(c) { if(c.energy < 15) return; c.bond=clamp(c.bond+10); c.energy=clamp(c.energy-15); maybeEvolve(c); save(); render(); }
+function feed(c) {
+  if (state.berries<=0 || c.status) return;
+  state.berries-=1; c.status='eating'; c.statusUntil=Date.now()+STATUS.eating.sec*1000;
+  startStatusLoop(); save(); render();
+}
+function rest(c) {
+  if (c.status) return;
+  c.status='sleeping'; c.statusUntil=Date.now()+STATUS.sleeping.sec*1000;
+  startStatusLoop(); save(); render();
+}
+function play(c) {
+  if (c.energy < 15 || c.status) return;
+  c.status='playing'; c.statusUntil=Date.now()+STATUS.playing.sec*1000;
+  startStatusLoop(); save(); render();
+}
+// end a status early (optional cancel button)
+function cancelStatus(c) {
+  if (!c.status) return;
+  c.status = null; c.statusUntil = null;
+  if (state.statusLoop) { clearInterval(state.statusLoop); state.statusLoop = null; }
+  render(); save();
+}
 // ponytail: evolve at bond>=100; replaces in-place with evolved form, keeps stats
 function maybeEvolve(c) {
   if (c.bond < 100) return;
@@ -353,20 +425,26 @@ function render() {
     dex.innerHTML = state.dex.map((c,i)=>{
       const hearts = '❤️'.repeat(Math.floor(c.bond/25)) + '🤍'.repeat(4 - Math.floor(c.bond/25));
       const tired = c.energy < 15 ? '<div class="hint" style="font-size:.7rem">Tired — rest first</div>' : '';
+      const statusLabel = c.status ? `<div style="font-size:.7rem;color:var(--pop);text-transform:capitalize">${c.status}… ${Math.ceil((c.statusUntil-Date.now())/1000)}s</div>` : '';
+      const btn = (icon, fn, title, disabled) => `<button onclick="${fn}(state.dex[${i}])" title="${title}" ${disabled ? 'disabled' : ''}>${icon}</button>`;
+      const busy = !!c.status;
+      const cancel = busy ? `<button onclick="cancelStatus(state.dex[${i}])" title="Cancel" style="font-size:.6rem">✕</button>` : '';
       return `
-      <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View in 3D">
+      <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View">
         <img class="deximg" src="${anim(byId(c.id)||c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated;background:none;box-shadow:none">
         <div class="name">${c.name}</div>
         ${c.bond >= 100 ? '<div style="font-size:.65rem;color:var(--pop)">MAX — can evolve</div>' : ''}
+        ${statusLabel}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
         <div class="bar energy"><i style="width:${c.energy}%"></i></div>
         <div class="bar bond"><i style="width:${c.bond}%"></i></div>
         <div style="font-size:.65rem;margin-top:.2rem">${hearts} ${c.bond}</div>
         ${tired}
         <div class="actions" onclick="event.stopPropagation()">
-          <button onclick="feed(state.dex[${i}])" title="Feed (1 berry)">🍎</button>
-          <button onclick="rest(state.dex[${i}])" title="Rest">💤</button>
-          <button onclick="play(state.dex[${i}])" title="Play (needs energy)" ${c.energy<15?'disabled':''}>🎾</button>
+          ${busy ? btn('🍎','feed','Already busy',true) : btn('🍎','feed','Feed (1 berry)',state.berries<=0)}
+          ${busy ? btn('💤','rest','Already busy',true) : btn('💤','rest','Rest')}
+          ${busy ? btn('🎾','play','Already busy',true) : btn('🎾','play','Play (needs energy)',c.energy<15)}
+          ${cancel}
         </div>
       </div>`;
     }).join('');
@@ -388,6 +466,7 @@ function chooseStarter(id) {
   notify('Starter chosen!', `${c.name} is ready to focus with you.`);
 }
 window.chooseStarter = chooseStarter;
+window.cancelStatus = cancelStatus;
 
 function exportSave() {
   const data = localStorage.getItem(SAVE_KEY);
@@ -436,12 +515,28 @@ function renderDexGrid() {
 }
 function openDexViewer(id) {
   const c = byId(id); if (!c) return;
+  showViewer(c, null);
+}
+function openViewer(i) {
+  const c = state.dex[i];
+  if (!c) return;
+  const em = byId(c.id) || c;
+  showViewer(em, c);
+}
+function showViewer(c, owned) {
   $('viewer').hidden = false;
   $('viewer-name').textContent = c.name;
-  $('viewer-type').textContent = `${typeStr(c)} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
-  $('viewer-canvas').innerHTML = `<img class="pokeimg" src="${art(c)}" alt="${c.name}">`;
+  const status = owned && owned.status ? `${owned.status}… ${Math.ceil((owned.statusUntil - Date.now())/1000)}s` : '';
+  const info = owned ? `${typeStr(c)} · bond ${owned.bond}${status ? ' · ' + status : ''}${owned.energy < 15 ? ' · tired' : ''}` : `${typeStr(c)} · ${c.evolvesTo ? 'Evolves into ' + byId(c.evolvesTo).name : 'Final form'}`;
+  $('viewer-type').textContent = info;
+  const img = state.viewMode === 'anim'
+    ? `<img src="${anim(c)}" alt="${c.name}" style="image-rendering:pixelated;max-height:260px;filter:drop-shadow(0 10px 20px rgba(0,0,0,.5))">`
+    : `<img class="pokeimg" src="${art(c)}" alt="${c.name}">`;
+  $('viewer-canvas').innerHTML = img + `<button onclick="toggleViewMode()" style="margin-top:.5rem;background:transparent;color:var(--muted);border:1px solid var(--accent);font-size:.75rem;border-radius:6px;padding:.3rem .7rem">${state.viewMode==='anim'?'Show artwork':'Show sprite'}</button>`;
 }
+function toggleViewMode() { state.viewMode = state.viewMode === 'anim' ? 'art' : 'anim'; render(); }
 window.openDexViewer = openDexViewer;
+window.toggleViewMode = toggleViewMode;
 
 $('start').onclick = start;
 $('pause').onclick = pause;
