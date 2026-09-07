@@ -119,7 +119,7 @@ const typeStr = c => (c.types ? c.types.join('/') : c.type); // compat: generate
 const reqMet = (c) => !c.req || ( (c.req.minStreak||0) <= state.streak && (c.req.minSessions||0) <= state.sessionsDone );
 const reqText = (c) => !c.req ? 'None' : [c.req.minStreak ? `Streak ≥ ${c.req.minStreak}d` : null, c.req.minSessions ? `Total ≥ ${c.req.minSessions}` : null].filter(Boolean).join(' · ');
 
-const FOCUS_MIN = 25, BREAK_MIN = 5;
+const FOCUS_MIN = 25, BREAK_MIN = 5, LONG_BREAK_MIN = 15;
 const SAVE_KEY = 'pomodoro-mon-v2-pokemon'; // ponytail: new key = fresh save; old-creature saves would break dex lookups
 const TICK_MS = 1000;
 // ponytail: decay per minute of real time; modest so neglect isn't punishing
@@ -130,13 +130,13 @@ const todayKey = () => new Date().toISOString().slice(0,10);
 const state = {
   mode:'focus', remaining:FOCUS_MIN*60, running:false, interval:null,
   encounter:null, dex:[], lastSeen:Date.now(), berries:0,
-  sessionsDone:0, lastSessionDay:null, streak:0, todayCount:0,
+  sessionsDone:0, lastSessionDay:null, streak:0, todayCount:0, cycleCount:0,
 };
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, remaining: state.mode==='break'?BREAK_MIN*60:FOCUS_MIN*60 });
+    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, remaining: (state.mode==='break'?BREAK_MIN*60:state.mode==='longbreak'?LONG_BREAK_MIN*60:FOCUS_MIN*60) });
     // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
     state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
   } catch {}
@@ -185,7 +185,14 @@ function finishSession() {
     state.todayCount += 1;
     spawnEncounter();
     notify('Focus done!', state.encounter ? `${state.encounter.name} appeared!` : 'Take a break.');
-    state.mode = 'break'; state.remaining = BREAK_MIN*60;
+    state.cycleCount += 1;
+    if (state.cycleCount >= 4) {
+      state.cycleCount = 0;
+      state.mode = 'longbreak'; state.remaining = LONG_BREAK_MIN*60;
+      notify('Set complete!', 'Enjoy a 15-minute long break.');
+    } else {
+      state.mode = 'break'; state.remaining = BREAK_MIN*60;
+    }
   } else {
     notify('Break over', 'Back to focus.');
     state.mode = 'focus'; state.remaining = FOCUS_MIN*60;
@@ -222,7 +229,7 @@ function start() {
   state.running=true; state.interval=setInterval(tick,TICK_MS); render();
 }
 function pause() { if(!state.running)return; state.running=false; clearInterval(state.interval); render(); }
-function reset() { pause(); state.remaining=(state.mode==='break'?BREAK_MIN:FOCUS_MIN)*60; render(); save(); }
+function reset() { pause(); state.remaining=(state.mode==='break'?BREAK_MIN:state.mode==='longbreak'?LONG_BREAK_MIN:FOCUS_MIN)*60; render(); save(); }
 
 function catchEncounter() {
   if (!state.encounter) return;
@@ -261,8 +268,9 @@ function render() {
   $('mode').textContent = state.mode;
   $('start').disabled = state.running;
   $('pause').disabled = !state.running;
-  $('stats').textContent = `Today: ${state.todayCount} · Streak: ${state.streak}d · Berries: ${state.berries} · Total: ${state.sessionsDone}`;
+  $('stats').textContent = `Today: ${state.todayCount} · Streak: ${state.streak}d · Berries: ${state.berries} · Total: ${state.sessionsDone} · Set: ${state.cycleCount}/4`;
 
+  const modeLabel = state.mode === 'longbreak' ? 'long break' : state.mode;
   const ec = $('encounter-card');
   if (state.encounter) {
     ec.hidden = false;
@@ -297,8 +305,8 @@ function render() {
     }).join('');
   }
   renderDexGrid();
-  $('start').textContent = state.remaining===(state.mode==='break'?BREAK_MIN:FOCUS_MIN)*60 && !state.running ? 'Start' : (state.running?'Running…':'Resume');
-  document.title = `${fmt(state.remaining)} · ${state.mode} · pomodoro-mon`;
+  $('start').textContent = state.remaining===((state.mode==='break'?BREAK_MIN:state.mode==='longbreak'?LONG_BREAK_MIN:FOCUS_MIN)*60) && !state.running ? 'Start' : (state.running?'Running…':'Resume');
+  document.title = `${fmt(state.remaining)} · ${modeLabel} · pomodoro-mon`;
 }
 
 // ponytail: dex tab — all 16 creatures, silhouette when unknown, requirement + owned state when known
@@ -382,6 +390,14 @@ function openViewer(i) {
   maybeEvolve(state.dex[0]);
   console.assert(state.dex[0].id==='ivysaur', 'evolution transforms creature');
   console.assert(state.dex[0].pid===2, 'evolution updates pid');
+  // pomodoro cycle: 4 focus sessions → long break, then cycle resets on break end
+  state.mode = 'focus'; state.remaining = 0; state.cycleCount = 0;
+  function simFocusEnd() { state.remaining = 0; finishSession(); }
+  for (let i=0;i<4;i++) simFocusEnd();
+  console.assert(state.mode==='longbreak', '4th focus triggers long break');
+  console.assert(state.cycleCount===0, 'cycle resets at long break');
+  state.remaining = 0; finishSession();
+  console.assert(state.mode==='focus', 'after long break back to focus');
   console.log('pomodoro-mon self-check: OK');
 })();
 
