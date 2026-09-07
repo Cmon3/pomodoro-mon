@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>pomodoro-mon</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23f5f5f5' stroke='%23222' stroke-width='4'/%3E%3Cpath d='M2 50h96' stroke='%23222' stroke-width='8'/%3E%3Ccircle cx='50' cy='50' r='14' fill='%23222'/%3E%3Ccircle cx='50' cy='50' r='8' fill='%23fff'/%3E%3Cpath d='M2 50 A48 48 0 0 1 98 50' fill='%23ef5350'/%3E%3C/svg%3E">
 <style>
   :root { --bg:#1a1a2e; --panel:#16213e; --accent:#0f3460; --pop:#e94560; --txt:#eee; --muted:#889; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -136,7 +137,8 @@ const state = {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, remaining: (state.mode==='break'?BREAK_MIN*60:state.mode==='longbreak'?LONG_BREAK_MIN*60:FOCUS_MIN*60) });
+    // ponytail: always start fresh in focus mode — resuming mid-break is confusing UX
+    if (s) Object.assign(state, s, { running:false, interval:null, encounter:null, mode:'focus', remaining: FOCUS_MIN*60 });
     // ponytail: migrate old saves — drop dex entries missing pid (old schema) so anim()/art() never produce undefined.gif
     state.dex = (state.dex||[]).filter(c => c.pid && byId(c.id));
   } catch {}
