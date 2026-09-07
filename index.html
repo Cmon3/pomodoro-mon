@@ -8,68 +8,99 @@
 <meta http-equiv="Expires" content="0">
 <title>pomodoro-mon</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23f5f5f5' stroke='%23222' stroke-width='4'/%3E%3Cpath d='M2 50h96' stroke='%23222' stroke-width='8'/%3E%3Ccircle cx='50' cy='50' r='14' fill='%23222'/%3E%3Ccircle cx='50' cy='50' r='8' fill='%23fff'/%3E%3Cpath d='M2 50 A48 48 0 0 1 98 50' fill='%23ef5350'/%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#1a1a2e; --panel:#16213e; --accent:#0f3460; --pop:#e94560; --txt:#eee; --muted:#889; }
+  /* Pokédex theme: red device chassis, dark screen bezel */
+  :root {
+    --bg:#1a1a1a;
+    --chassis:#dc0a2d;
+    --chassis-dark:#a00820;
+    --panel:#e8e8e8;
+    --screen:#0f1f12;
+    --screen-txt:#9fd18f;
+    --accent:#2d2d4d;
+    --pop:#dc0a2d;
+    --txt:#222;
+    --muted:#666;
+    --btn-neutral:#4a5568;
+  }
   * { box-sizing:border-box; margin:0; padding:0; }
   /* ponytail: attribute hidden must beat any display rule (e.g. #viewer's display:flex) */
   [hidden] { display:none !important; }
   body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:1rem; }
-  h1 { font-size:1.4rem; margin-bottom:1rem; letter-spacing:.5px; }
-  h1 span { color:var(--pop); }
-  .card { background:var(--panel); border-radius:12px; padding:1.25rem; width:100%; max-width:420px; margin-bottom:1rem; }
-  #timer { font-size:3.5rem; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
-  #mode { text-align:center; color:var(--muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:2px; font-size:.8rem; }
+  body { font-family:'Press Start 2P', monospace; background:linear-gradient(180deg,#111 0%,#333 100%); color:#fff; }
+  h1 { font-size:1.1rem; margin-bottom:1rem; letter-spacing:.5px; }
+  h1 span { color:#ffd54f; }
+  .card { background:var(--chassis); border:3px solid #000; border-radius:14px; padding:1rem; width:100%; max-width:480px; margin-bottom:1rem; box-shadow:0 6px 0 var(--chassis-dark); position:relative; }
+  .card::before { content:''; position:absolute; inset:8px; border:2px solid rgba(0,0,0,.3); border-radius:8px; pointer-events:none; }
+  .screen { background:var(--screen); border:3px solid #000; border-radius:8px; padding:.85rem; color:var(--screen-txt); position:relative; z-index:1; text-shadow:1px 1px 0 #000; }
+  #timer { font-size:2rem; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; letter-spacing:2px; margin:.5rem 0; color:var(--screen-txt); }
+  #mode { text-align:center; color:var(--screen-txt); opacity:.8; margin-bottom:.75rem; text-transform:uppercase; letter-spacing:2px; font-size:.65rem; }
+  .leds { display:flex; gap:.35rem; justify-content:center; margin-bottom:.5rem; }
+  .led { width:8px; height:8px; border-radius:50%; border:1px solid #000; }
+  .led.on { box-shadow:0 0 6px currentColor; }
+  .led.off { background:#333 !important; box-shadow:none; }
   .controls { display:flex; gap:.5rem; justify-content:center; }
   .subcontrols { display:flex; gap:.5rem; justify-content:center; margin-top:.6rem; flex-wrap:wrap; }
-  .subcontrols button { font-size:.8rem; background:transparent; color:var(--muted); border:1px solid var(--accent); border-radius:8px; padding:.45rem .85rem; }
-  .subcontrols button:hover { color:var(--txt); background:rgba(255,255,255,.05); }
-  button { background:var(--accent); color:var(--txt); border:none; border-radius:8px; padding:.6rem 1.1rem; font-size:1rem; cursor:pointer; }
-  button:hover { background:var(--pop); }
+  .subcontrols button { font-size:.7rem; background:var(--btn-neutral); color:#fff; border:1px solid #000; border-radius:8px; padding:.45rem .85rem; }
+  .subcontrols button:hover { background:var(--chassis-dark); }
+  button { background:var(--btn-neutral); color:#fff; border:2px solid #000; border-radius:8px; padding:.6rem 1rem; font-size:.65rem; font-family:'Press Start 2P', monospace; cursor:pointer; text-shadow:1px 1px 0 #000; }
+  button:hover { background:var(--chassis-dark); }
   button:disabled { opacity:.4; cursor:not-allowed; }
+  #start { background:#2e7d1f; }
+  #pause { background:#b8860b; }
   .row { display:flex; gap:.5rem; justify-content:center; margin-top:.75rem; }
   #encounter { text-align:center; }
   #encounter .emoji { font-size:4rem; }
-  #encounter .name { font-size:1.2rem; margin:.25rem 0; }
-  #encounter .type { color:var(--muted); font-size:.85rem; }
+  #encounter .name { font-size:.9rem; margin:.4rem 0; }
+  #encounter .type { color:var(--screen-txt); opacity:.7; font-size:.6rem; }
+  .empty { color:var(--screen-txt); opacity:.7; text-align:center; padding:1rem; font-size:.65rem; }
+  .hint { color:var(--screen-txt); opacity:.75; font-size:.6rem; text-align:center; margin-top:.5rem; line-height:1.5; }
+  #stats { color:var(--screen-txt); font-size:.55rem; text-align:center; margin-top:.5rem; line-height:1.6; }
+  /* My creatures */
   #dex { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; }
-  .critter { background:var(--accent); border-radius:8px; padding:.6rem; text-align:center; }
-  .critter .emoji { font-size:1.8rem; }
-  .critter .name { font-size:.8rem; margin-top:.2rem; }
-  .bar { height:6px; background:#333; border-radius:3px; margin-top:.3rem; overflow:hidden; }
+  .critter { background:rgba(0,0,0,.35); border:2px solid #000; border-radius:8px; padding:.6rem; text-align:center; }
+  .critter .name { font-size:.7rem; margin-top:.25rem; }
+  .critter .emoji { font-size:1.6rem; }
+  .bar { height:6px; background:#222; border-radius:3px; margin-top:.3rem; overflow:hidden; }
   .bar > i { display:block; height:100%; }
-  .hunger > i { background:#e94560; } .energy > i { background:#4ecca3; } .bond > i { background:#f0a500; }
+  .hunger > i { background:#dc0a2d; } .energy > i { background:#4ecca3; } .bond > i { background:#f0a500; }
   .actions { display:flex; gap:.25rem; justify-content:center; margin-top:.4rem; }
-  .actions button { padding:.25rem .5rem; font-size:.75rem; }
-  .empty { color:var(--muted); text-align:center; padding:1rem; }
-  .hint { color:var(--muted); font-size:.8rem; text-align:center; margin-top:.5rem; }
-  #encounter3d, #viewer-canvas { width:100%; height:200px; border-radius:8px; background:radial-gradient(circle,#1f2b4d,#0d1326); }
-  #viewer, #starter { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; z-index:10; }
-  #viewer-box, #starter-box { background:var(--panel); border-radius:16px; padding:1.25rem; width:min(94vw,520px); text-align:center; }
-  #viewer-canvas { height:300px; }
+  .actions button { padding:.25rem .5rem; font-size:.55rem; }
+  .status-badge { font-size:.55rem; color:#ffd54f; text-shadow:1px 1px 0 #000; }
+  /* overlays */
+  #viewer, #starter { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:10; }
+  #viewer-box, #starter-box { background:var(--chassis); border:3px solid #000; border-radius:16px; padding:1rem; width:min(94vw,520px); text-align:center; box-shadow:0 8px 0 var(--chassis-dark); }
+  #viewer-canvas { min-height:220px; display:flex; align-items:center; justify-content:center; flex-direction:column; }
   .starter-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; margin-top:1rem; }
-  .starter { background:var(--accent); border-radius:12px; padding:.75rem .5rem; cursor:pointer; transition:transform .15s; }
-  .starter:hover { transform:translateY(-4px); }
+  .starter { background:rgba(0,0,0,.3); border:2px solid #000; border-radius:12px; padding:.75rem .5rem; cursor:pointer; transition:transform .15s; color:#fff; }
+  .starter:hover { transform:translateY(-4px); background:rgba(0,0,0,.45); }
   .starter img { margin-bottom:.25rem; }
   .starter button { width:100%; margin-top:.5rem; }
+  .starter .req { color:#fff; font-size:.5rem; opacity:.8; margin-top:.35rem; }
   @media (max-width:480px) { .starter-grid { grid-template-columns:1fr; } }
-  #viewer-box .title { font-size:1.1rem; margin:.75rem 0 .25rem; }
-  #viewer-box .type { color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
+  #viewer-box .title { font-size:.9rem; margin:.75rem 0 .25rem; color:#fff; text-shadow:1px 1px 0 var(--chassis-dark); }
+  #viewer-box .type { color:#fff; opacity:.8; font-size:.6rem; margin-bottom:.5rem; }
   #viewer-box button { width:100%; }
-  .deximg { width:64px; height:64px; border-radius:8px; background:radial-gradient(circle,#223055,#0d1326); }
-  .pokeimg { width:100%; max-height:300px; object-fit:contain; filter:drop-shadow(0 10px 20px rgba(0,0,0,.5)); animation:floaty 2.8s ease-in-out infinite; }
+  .deximg { width:64px; height:64px; }
+  .pokeimg { width:100%; max-height:280px; object-fit:contain; filter:drop-shadow(0 10px 20px rgba(0,0,0,.5)); animation:floaty 2.8s ease-in-out infinite; }
   @keyframes floaty { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-8px) rotate(1deg); } }
-  .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; }
-  .tab { padding:.4rem .9rem; font-size:.9rem; border-radius:8px; background:transparent; color:var(--muted); border:1px solid var(--accent); }
-  .tab.active { background:var(--accent); color:var(--txt); }
-  .dexgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.85rem; }
-  .dexitem { background:var(--accent); border-radius:12px; padding:.85rem .6rem; text-align:center; font-size:.85rem; color:var(--txt); transition:transform .1s; }
-  .dexitem:hover { transform:translateY(-3px); }
-  .dexitem .img { min-height:3rem; display:flex; align-items:center; justify-content:center; margin-bottom:.5rem; }
-  .dexitem .img img { width:3rem; height:3rem; object-fit:contain; }
-  .dexitem.locked { opacity:.55; }
-  .dexitem .req { font-size:.7rem; color:var(--muted); margin-top:.35rem; line-height:1.4; }
-  .dexitem .name { font-size:.9rem; margin-top:.2rem; }
+  .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; justify-content:center; }
+  .tab { padding:.45rem .9rem; font-size:.6rem; border-radius:8px; background:rgba(0,0,0,.35); color:#fff; border:2px solid #000; }
+  .tab.active { background:#fff; color:var(--chassis); text-shadow:none; }
+  .dexgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.85rem; margin-top:.75rem; }
+  .dexitem { background:var(--panel); color:var(--txt); border:2px solid #000; border-radius:10px; padding:.85rem .6rem; text-align:center; font-size:.7rem; transition:transform .1s; }
+  .dexitem:hover { transform:translateY(-3px); box-shadow:0 4px 0 rgba(0,0,0,.3); }
+  .dexitem .img { min-height:3.5rem; display:flex; align-items:center; justify-content:center; margin-bottom:.5rem; }
+  .dexitem .img img { width:3.5rem; height:3.5rem; object-fit:contain; }
+  .dexitem.locked { opacity:.5; filter:grayscale(.4); }
+  .dexitem .req { font-size:.55rem; color:var(--muted); margin-top:.35rem; line-height:1.4; }
+  .dexitem .name { font-size:.7rem; margin-top:.2rem; }
   @media (max-width:400px) { .dexgrid { grid-template-columns:repeat(2,1fr); } }
+  #encounter-card { border-radius:14px; }
+  #encounter3d { min-height:120px; display:flex; align-items:center; justify-content:center; }
+  #dexsearch { width:100%; padding:.5rem .7rem; border-radius:8px; border:2px solid #000; background:var(--screen); color:var(--screen-txt); font-family:'Press Start 2P', monospace; font-size:.65rem; margin-bottom:.6rem; }
+  #dexsearch::placeholder { color:#5a7d4f; }
 
 </style>
 
@@ -78,21 +109,28 @@
   <h1>pomodoro<span>-mon</span></h1>
 
   <div class="card">
-    <div id="mode">focus</div>
-    <div id="timer">25:00</div>
-    <div class="controls">
-      <button id="start">Start</button>
-      <button id="pause" disabled>Pause</button>
-      <button id="reset">Reset</button>
+    <div class="leds">
+      <span class="led" id="led-focus" title="Focus"></span>
+      <span class="led" id="led-break" title="Break"></span>
+      <span class="led" id="led-longbreak" title="Long break"></span>
     </div>
-    <div class="subcontrols">
-      <button id="next">Next session (no points)</button>
-      <button id="export">Export save</button>
-      <button id="import">Import save</button>
+    <div class="screen">
+      <div id="mode">focus</div>
+      <div id="timer">25:00</div>
+      <div class="controls">
+        <button id="start">Start</button>
+        <button id="pause" disabled>Pause</button>
+        <button id="reset">Reset</button>
+      </div>
+      <div class="subcontrols">
+        <button id="next">Next session (no points)</button>
+        <button id="export">Export save</button>
+        <button id="import">Import save</button>
+      </div>
+      <div id="saved" class="hint" style="margin-top:.25rem"></div>
+      <div class="hint">Complete a focus session to encounter a creature.</div>
+      <div id="stats" class="hint"></div>
     </div>
-    <div id="saved" class="hint" style="margin-top:.25rem"></div>
-    <div class="hint">Complete a focus session to encounter a creature.</div>
-    <div id="stats" class="hint"></div>
   </div>
 
   <div id="starter" hidden>
@@ -123,11 +161,13 @@
   </div>
 
   <div class="card" id="encounter-card" hidden>
-    <div id="encounter3d"></div>
-    <div id="encounter" style="text-align:center"></div>
-    <div class="row">
-      <button id="catch">Catch</button>
-      <button id="flee">Flee</button>
+    <div class="screen">
+      <div id="encounter3d"></div>
+      <div id="encounter" style="text-align:center"></div>
+      <div class="row">
+        <button id="catch">Throw Ball</button>
+        <button id="flee">Flee</button>
+      </div>
     </div>
   </div>
 
@@ -142,15 +182,17 @@
   </div>
 
   <div class="card">
-    <div class="tabs">
-      <button id="tab-own" class="tab active">My Creatures</button>
-      <button id="tab-dex" class="tab">Dex</button>
-    </div>
-    <div id="view-own"><div id="dex"></div></div>
-    <div id="view-dex" hidden>
-      <div class="hint" style="margin-bottom:.6rem">Catch them all. Hidden Pokémon have requirements below.</div>
-      <input id="dexsearch" type="search" placeholder="Search…" style="width:100%;padding:.5rem .7rem;border-radius:8px;border:1px solid var(--accent);background:#0d1326;color:var(--txt);margin-bottom:.6rem">
-      <div class="dexgrid" id="dexgrid"></div>
+    <div class="screen">
+      <div class="tabs">
+        <button id="tab-own" class="tab active">My Creatures</button>
+        <button id="tab-dex" class="tab">Pokédex</button>
+      </div>
+      <div id="view-own"><div id="dex"></div></div>
+      <div id="view-dex" hidden>
+        <div class="hint" style="margin-bottom:.6rem">Catch them all. Hidden Pokémon have requirements below.</div>
+        <input id="dexsearch" type="search" placeholder="Search…">
+        <div class="dexgrid" id="dexgrid"></div>
+      </div>
     </div>
   </div>
 
@@ -416,11 +458,22 @@ function render() {
   $('pause').disabled = !state.running;
   $('stats').textContent = `Today: ${state.todayCount} · Streak: ${state.streak}d · Berries: ${state.berries} · Total: ${state.sessionsDone} · Set: ${state.cycleCount}/4`;
 
+  // LED indicators
+  const modes = ['focus','break','longbreak'];
+  modes.forEach(m => {
+    const led = $('led-'+m);
+    if (!led) return;
+    const active = state.mode === m;
+    led.className = 'led ' + (active ? 'on' : 'off');
+    led.style.background = active ? (m==='focus' ? '#dc0a2d' : m==='break' ? '#4ecca3' : '#f0a500') : '#333';
+    led.style.color = led.style.background;
+  });
+
   const modeLabel = state.mode === 'longbreak' ? 'long break' : state.mode;
   const ec = $('encounter-card');
   if (state.encounter) {
     ec.hidden = false;
-    $('encounter').innerHTML = `<div class="name">${state.encounter.name}</div><div class="type">${typeStr(state.encounter)} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
+    $('encounter').innerHTML = `<div class="name">A wild ${state.encounter.name} appeared!</div><div class="type">${typeStr(state.encounter)} · rarity ${'★'.repeat(state.encounter.rarity)}</div>`;
     const em = byId(state.encounter.id) || state.encounter;
     $('encounter3d').innerHTML = `<img src="${anim(em)}" alt="${em.name}" style="image-rendering:pixelated;height:110px;filter:drop-shadow(0 8px 16px rgba(0,0,0,.4))">`;
   } else { ec.hidden = true; }
@@ -439,8 +492,8 @@ function render() {
       return `
       <div class="critter" onclick="openViewer(${i})" style="cursor:pointer" title="View">
         <img class="deximg" src="${anim(byId(c.id)||c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated;background:none;box-shadow:none">
-        <div class="name">${c.name}</div>
-        ${c.bond >= 100 ? '<div style="font-size:.65rem;color:var(--pop)">MAX — can evolve</div>' : ''}
+        <div class="name">#${String((byId(c.id)||c).pid).padStart(3,'0')} ${c.name}</div>
+        ${c.bond >= 100 ? '<div class="status-badge">MAX — can evolve</div>' : ''}
         ${statusLabel}
         <div class="bar hunger"><i style="width:${c.hunger}%"></i></div>
         <div class="bar energy"><i style="width:${c.energy}%"></i></div>
@@ -517,7 +570,7 @@ function renderDexGrid() {
       const hint = c.req ? reqText(c) : 'Focus sessions to find';
       return `<div class="dexitem locked"><div class="img">❓</div><div class="name">???</div><div class="req" title="Requirement">${hint}</div></div>`;
     }
-    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View"><div class="img"><img src="${anim(c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated"></div><div class="name">${c.name}</div><div class="req">${typeStr(c)} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
+    return `<div class="dexitem" onclick="openDexViewer('${c.id}')" style="cursor:pointer" title="View"><div class="img"><img src="${anim(c)}" alt="${c.name}" loading="lazy" style="image-rendering:pixelated"></div><div class="name">#${String(c.pid).padStart(3,'0')} ${c.name}</div><div class="req">${typeStr(c)} · ${'★'.repeat(c.rarity)||'★'}</div></div>`;
   }).join('');
 }
 function openDexViewer(id) {
